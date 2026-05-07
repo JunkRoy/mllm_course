@@ -1,0 +1,16 @@
+vision_model_path: ../models/vision-backbone
+vlm_model_path: ../models/vlm
+vision_dataset_dir: ../data/vision_dataset
+vlm_train_jsonl: ../data/vlm_lora/train.jsonl
+output_dir: outputs
+epochs: 3
+batch_size: 2
+learning_rate: 0.0001
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - v_proj
+

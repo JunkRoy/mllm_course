@@ -1,0 +1,12 @@
+raw_image_dir: ../data/raw/images
+raw_annotation_path: ../data/raw/annotations.json
+output_dir: outputs/dataset
+class_names:
+  - defect
+  - text
+  - object
+splits:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+

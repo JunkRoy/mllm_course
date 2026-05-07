@@ -1,0 +1,7 @@
+model_path: ../public_pretrain_models/Qwen3-VL-2B-Thinking
+image_path: ../dataset/images/img-1.jpg
+prompt: 请描述图片中的主要内容，并给出可见对象列表。
+output_dir: outputs
+max_new_tokens: 256
+device: auto
+

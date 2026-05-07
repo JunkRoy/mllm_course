@@ -1,0 +1,7 @@
+sam_model_path: ../models/sam
+train_annotation: ../data/sam/train_coco.json
+val_image_path: ../data/images/seg_demo.jpg
+output_dir: outputs
+epochs: 2
+learning_rate: 0.00001
+

@@ -1,0 +1,12 @@
+sam_checkpoint_path: ../models/sam/sam3.pt
+load_from_hf: false
+confidence_threshold: 0.5
+device: cuda
+image_path: ../data/images/seg_demo.jpg
+output_dir: outputs
+point_prompts:
+  - [320, 240, 1]
+box_prompts:
+  - [100, 80, 520, 420]
+text_prompts:
+  - target object

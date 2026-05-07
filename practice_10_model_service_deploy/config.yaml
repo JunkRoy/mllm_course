@@ -1,0 +1,10 @@
+model_path: ../models/vlm
+sam_model_path: ../models/sam
+ocr_model_path: ../models/ocr
+sample_image_path: ../data/images/service_demo.jpg
+output_dir: outputs
+device_map: auto
+precision: fp16
+max_new_tokens: 512
+benchmark_rounds: 5
+

@@ -1,0 +1,9 @@
+model_path: ../models/vlm
+image_path: ../data/images/vqa_demo.jpg
+output_dir: outputs
+questions:
+  - 请识别图片中的主要对象。
+  - 请提取图片中的文字。
+  - 请以 JSON 输出对象、文字、风险点和依据。
+system_prompt: 你是严谨的视觉问答助手，回答必须基于图片可见证据。
+

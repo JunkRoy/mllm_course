@@ -1,0 +1,8 @@
+model_path: ../models/vlm
+train_jsonl: ../data/vlm_lora/train.jsonl
+output_dir: outputs
+tuning_mode: projector_llm
+epochs: 1
+batch_size: 1
+learning_rate: 0.00005
+

@@ -1,0 +1,9 @@
+vision_model_path: ../models/vision-backbone
+dataset_dir: ../data/vision_dataset
+output_dir: outputs
+num_prompt_tokens: 16
+embed_dim: 768
+epochs: 2
+batch_size: 4
+learning_rate: 0.001
+
