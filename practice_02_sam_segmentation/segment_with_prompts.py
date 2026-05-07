@@ -1,6 +1,15 @@
+"""基于 transformers 的 SAM3 提示分割示例。
+
+教学流程：
+1）读取配置
+2）使用点/框提示执行分割
+3）保存 mask/可视化/JSON 结果
+"""
+
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -8,177 +17,162 @@ import yaml
 from PIL import Image
 
 
-def require_sam3():
+def require_sam_transformers():
+    """按需导入 torch 与 transformers 组件，缺依赖时给出明确报错。"""
     try:
         import torch
-        from sam3.model_builder import build_sam3_image_model
-        from sam3.model.sam3_image_processor import Sam3Processor
+        from transformers import AutoModelForMaskGeneration, AutoProcessor
     except ImportError as exc:
         raise RuntimeError(
-            "SAM3 is not installed in this Python environment. Install Meta's "
-            "facebookresearch/sam3 package and its PyTorch/CUDA dependencies first."
+            "缺少依赖：请先安装 PyTorch 和 transformers。"
         ) from exc
-    return torch, build_sam3_image_model, Sam3Processor
+    return torch, AutoModelForMaskGeneration, AutoProcessor
 
 
-def load_config(path: str) -> dict:
+def load_config(path: str) -> dict[str, Any]:
+    """读取 YAML 配置文件。"""
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
+def resolve_model_name(cfg: dict[str, Any]) -> str:
+    """从配置中获取模型 ID，默认使用 ModelScope/HF 可用的 `facebook/sam3`。"""
+    return str(cfg.get("sam_model_name") or "facebook/sam3")
+
+
+def build_model_and_processor(cfg: dict[str, Any]):
+    """创建模型、处理器与设备信息。
+
+    返回：
+        torch 模块、模型实例、处理器实例、设备字符串
+    """
+    torch, AutoModelForMaskGeneration, AutoProcessor = require_sam_transformers()
+    device = cfg.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
+    model_name = resolve_model_name(cfg)
+    model = AutoModelForMaskGeneration.from_pretrained(model_name).to(device)
+    processor = AutoProcessor.from_pretrained(model_name)
+    return torch, model, processor, device
+
+
+def postprocess_masks(processor, outputs, inputs) -> tuple[np.ndarray, np.ndarray]:
+    """将 SAM 原始输出还原为原图尺寸的 mask，并返回对应 IoU 分数。"""
+    masks = processor.image_processor.post_process_masks(
+        outputs.pred_masks.cpu(),
+        original_sizes=inputs["original_sizes"].cpu(),
+        reshaped_input_sizes=inputs["reshaped_input_sizes"].cpu(),
+    )[0]
+    scores = outputs.iou_scores[0].detach().cpu().numpy()
+    return masks.detach().cpu().numpy(), scores
+
+
+def predict_with_box_prompt(image: Image.Image, box: list[float], model, processor, torch, device: str):
+    """对单个框提示执行 SAM 预测。"""
+    inputs = processor(image, input_boxes=[[[float(v) for v in box]]], return_tensors="pt").to(device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return postprocess_masks(processor, outputs, inputs)
+
+
+def predict_with_point_prompt(image: Image.Image, point: list[float], model, processor, torch, device: str):
+    """对单个点提示执行 SAM 预测。
+
+    点格式：[x, y, label]，其中 label=1 表示前景，0 表示背景。
+    """
+    label = int(point[2]) if len(point) > 2 else 1
+    inputs = processor(
+        image,
+        input_points=[[[[float(point[0]), float(point[1])]]]],
+        input_labels=[[[label]]],
+        return_tensors="pt",
+    ).to(device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return postprocess_masks(processor, outputs, inputs)
+
+
+def collect_predictions(image: Image.Image, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """收集所有提示的预测结果，统一整理为列表。"""
+    torch, model, processor, device = build_model_and_processor(cfg)
+    threshold = float(cfg.get("confidence_threshold", 0.5))
+    items: list[dict[str, Any]] = []
+
+    # 文本提示当前不参与推理：标准 SAM 接口主要面向点/框几何提示。
+    for prompt in cfg.get("text_prompts", []):
+        print(f"warning: 文本提示 '{prompt}' 当前不支持，将跳过")
+
+    for box in cfg.get("box_prompts", []):
+        masks, scores = predict_with_box_prompt(image, box, model, processor, torch, device)
+        for idx, mask in enumerate(masks):
+            binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+            items.append({"source": "box", "prompt": box, "mask": binary_mask, "score": float(scores[idx])})
+
+    for point in cfg.get("point_prompts", []):
+        masks, scores = predict_with_point_prompt(image, point, model, processor, torch, device)
+        for idx, mask in enumerate(masks):
+            binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+            items.append({"source": "point", "prompt": point, "mask": binary_mask, "score": float(scores[idx])})
+
+    return items
+
+
 def mask_to_bbox(mask: np.ndarray) -> list[int]:
+    """根据二值 mask 计算外接框 bbox=[x_min,y_min,x_max,y_max]。"""
     ys, xs = np.where(mask > 0)
     if len(xs) == 0:
         return [0, 0, 0, 0]
     return [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
 
 
-def overlay_mask(image: np.ndarray, mask: np.ndarray, color=(0, 180, 255), alpha=0.45) -> np.ndarray:
-    overlay = image.copy()
-    overlay[mask > 0] = color
-    return cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+def draw_mask_like_modelscope(image: np.ndarray, mask: np.ndarray, color=(30, 180, 255), alpha=0.5) -> np.ndarray:
+    """以半透明填充+白色轮廓的方式可视化 mask（接近 ModelScope 风格）。"""
+    vis = image.copy()
+    color_layer = np.zeros_like(vis)
+    color_layer[mask > 0] = color
+    vis = cv2.addWeighted(color_layer, alpha, vis, 1 - alpha, 0)
+    contours, _ = cv2.findContours((mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(vis, contours, -1, (255, 255, 255), 2)
+    return vis
 
 
-def xyxy_to_normalized_cxcywh(box: list[float], width: int, height: int) -> list[float]:
-    x1, y1, x2, y2 = [float(v) for v in box]
-    return [
-        ((x1 + x2) / 2) / width,
-        ((y1 + y2) / 2) / height,
-        max(0.0, (x2 - x1) / width),
-        max(0.0, (y2 - y1) / height),
-    ]
+def save_outputs(image_np: np.ndarray, output_dir: Path, items: list[dict[str, Any]]) -> None:
+    """保存 mask 图片、可视化图片与 segments.json。"""
+    records = []
+    for idx, item in enumerate(items):
+        mask = item["mask"]
+        bbox = mask_to_bbox(mask)
 
+        cv2.imwrite(str(output_dir / f"mask_{idx:03d}.png"), mask)
 
-def point_to_normalized_xy(point: list[float], width: int, height: int) -> list[float]:
-    x, y = [float(v) for v in point[:2]]
-    return [x / width, y / height]
+        vis = draw_mask_like_modelscope(image_np, mask)
+        cv2.rectangle(vis, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (30, 255, 30), 2)
+        score = item.get("score")
+        if score is not None:
+            cv2.putText(vis, f"score={score:.3f}", (bbox[0], max(20, bbox[1] - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.imwrite(str(output_dir / f"visual_{idx:03d}.jpg"), vis)
 
+        record = {"id": idx, "source": item["source"], "prompt": item["prompt"], "bbox": bbox}
+        if score is not None:
+            record["score"] = score
+        records.append(record)
 
-def resolve_checkpoint_path(cfg: dict) -> str | None:
-    configured = cfg.get("sam_checkpoint_path")
-    if not configured:
-        return None
-
-    path = Path(configured)
-    if path.is_file():
-        return str(path)
-    return str(path)
-
-
-def state_to_items(output: dict, source: str, prompt) -> list[dict]:
-    masks = output.get("masks")
-    boxes = output.get("boxes")
-    scores = output.get("scores")
-    if masks is None:
-        return []
-
-    masks_np = masks.detach().cpu().numpy()
-    boxes_np = None if boxes is None else boxes.detach().cpu().numpy()
-    scores_np = None if scores is None else scores.detach().cpu().numpy()
-
-    items = []
-    for idx, mask in enumerate(masks_np):
-        mask_2d = np.squeeze(mask).astype(bool)
-        item = {
-            "source": source,
-            "prompt": prompt,
-            "mask": (mask_2d.astype(np.uint8) * 255),
-        }
-        if boxes_np is not None and idx < len(boxes_np):
-            item["model_box"] = [int(v) for v in boxes_np[idx].tolist()]
-        if scores_np is not None and idx < len(scores_np):
-            item["score"] = float(scores_np[idx])
-        items.append(item)
-    return items
-
-
-def add_point_prompt(processor, model, torch, point: list[int], state: dict, device: str) -> dict:
-    if "language_features" not in state["backbone_out"]:
-        dummy_text_outputs = model.backbone.forward_text(["visual"], device=device)
-        state["backbone_out"].update(dummy_text_outputs)
-    if "geometric_prompt" not in state:
-        state["geometric_prompt"] = model._get_dummy_prompt()
-
-    width = state["original_width"]
-    height = state["original_height"]
-    xy = point_to_normalized_xy(point, width, height)
-    label = bool(int(point[2])) if len(point) > 2 else True
-    points = torch.tensor(xy, device=device, dtype=torch.float32).view(1, 1, 2)
-    labels = torch.tensor([label], device=device, dtype=torch.long).view(1, 1)
-    state["geometric_prompt"].append_points(points, labels)
-    return processor._forward_grounding(state)
-
-
-def run_sam3(image: Image.Image, cfg: dict) -> list[dict]:
-    torch, build_sam3_image_model, Sam3Processor = require_sam3()
-    device = cfg.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint_path = resolve_checkpoint_path(cfg)
-    load_from_hf = bool(cfg.get("load_from_hf", checkpoint_path is None))
-
-    model = build_sam3_image_model(
-        device=device,
-        checkpoint_path=checkpoint_path,
-        load_from_HF=load_from_hf,
-    )
-    processor = Sam3Processor(
-        model,
-        device=device,
-        confidence_threshold=float(cfg.get("confidence_threshold", 0.5)),
-    )
-
-    width, height = image.size
-    items = []
-
-    for prompt in cfg.get("text_prompts", []):
-        state = processor.set_image(image)
-        output = processor.set_text_prompt(state=state, prompt=str(prompt))
-        items.extend(state_to_items(output, "text", prompt))
-
-    for box in cfg.get("box_prompts", []):
-        state = processor.set_image(image)
-        normalized_box = xyxy_to_normalized_cxcywh(box, width, height)
-        output = processor.add_geometric_prompt(
-            box=normalized_box,
-            label=True,
-            state=state,
-        )
-        items.extend(state_to_items(output, "box", box))
-
-    for point in cfg.get("point_prompts", []):
-        state = processor.set_image(image)
-        output = add_point_prompt(processor, model, torch, point, state, device)
-        items.extend(state_to_items(output, "point", point))
-
-    return items
+    (output_dir / "segments.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"saved {len(records)} masks to {output_dir}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--config", default="config.yaml", help="配置文件路径")
     args = parser.parse_args()
+
     cfg = load_config(args.config)
     output_dir = Path(cfg["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
     image = Image.open(cfg["image_path"]).convert("RGB")
     image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    records = []
-    for idx, item in enumerate(run_sam3(image, cfg)):
-        mask = item["mask"]
-        bbox = mask_to_bbox(mask)
-        cv2.imwrite(str(output_dir / f"mask_{idx:03d}.png"), mask)
-        vis = overlay_mask(image_np, mask)
-        cv2.rectangle(vis, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (30, 255, 30), 2)
-        cv2.imwrite(str(output_dir / f"visual_{idx:03d}.jpg"), vis)
-        record = {"id": idx, "source": item["source"], "prompt": item["prompt"], "bbox": bbox}
-        if "model_box" in item:
-            record["model_box"] = item["model_box"]
-        if "score" in item:
-            record["score"] = item["score"]
-        records.append(record)
 
-    (output_dir / "segments.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"saved {len(records)} masks to {output_dir}")
+    items = collect_predictions(image, cfg)
+    save_outputs(image_np, output_dir, items)
 
 
 if __name__ == "__main__":
