@@ -1,12 +1,20 @@
-image_model_path: ../models/qwen-image
-vlm_model_path: ../models/vlm
-edit_image_path: ../data/images/edit_input.jpg
-edit_prompt: 将图片编辑成更清晰的工业检测场景，保留原始主体，补充柔和灯光。
-vqa_image_path: ../data/images/vqa_demo.jpg
-output_dir: outputs
-generation_prompts:
-  - 一张工业质检场景图片，包含传送带、金属零件和清晰的中文标题。
-  - 科技展厅中的服务机器人，写实风格，冷暖光对比。
-vqa_questions:
-  - 请描述图片内容。
-  - 识别图片中的文字，并按 JSON 返回。
+qwen_image:
+  model_path: ../models/qwen-image
+  output_dir: outputs
+  generation_prompts:
+    - 一张工业质检场景图片，包含传送带、金属零件和清晰的中文标题。
+    - 科技展厅中的服务机器人，写实风格，冷暖光对比。
+
+  # 如不需要图像编辑，可设置为 null
+  edit_image_path: ../data/images/edit_input.jpg
+  edit_prompt: 将图片编辑成更清晰的工业检测场景，保留原始主体，补充柔和灯光。
+
+vlm:
+  # 支持 Qwen-VL / InternVL 等视觉语言模型
+  model_path: ../models/vlm
+  image_path: ../data/images/vqa_demo.jpg
+  output_dir: outputs
+  max_new_tokens: 512
+  questions:
+    - 请描述图片内容。
+    - 识别图片中的文字，并按 JSON 返回。

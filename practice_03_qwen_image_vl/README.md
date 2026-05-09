@@ -2,92 +2,77 @@
 
 课时：1 小时
 
-本节默认图像生成模型、视觉语言模型、图片和环境已经就绪。学习重点是区分“图像生成”和“图像理解”，并通过提示词控制输出内容。
+本节将图像生成与视觉理解拆分为两个独立脚本：
+- `qwen_image_generate.py`：仅负责 Qwen-Image 图像生成/编辑。
+- `vl_vqa.py`：仅负责 Qwen-VL / InternVL 的 VQA（视觉问答）。
 
 ## 学习目标
 
-- 学会用提示词控制图像生成的场景、主体、文字和风格。
-- 理解图像编辑与纯文本生成图片的区别。
-- 学会使用 VLM 完成图片描述、目标识别、OCR 和 VQA。
-- 学会让模型按 JSON 输出结构化结果。
+- 学会用 Qwen-Image 进行文生图和图像编辑。
+- 学会用 Qwen-VL / InternVL 对图片进行问答与 OCR。
+- 学会通过配置文件管理模型路径、输入输出路径和推理参数。
 
-## 背景知识
+## 文件说明
 
-Qwen-Image 类模型负责“生成图片”，输入通常是文字提示词，也可以结合原图做编辑。Qwen-VL / InternVL 类模型负责“理解图片”，输入是图片加问题，输出是文字答案。
-
-提示词越具体，结果越容易控制。对于文生图，可以从场景、主体、构图、文字、风格五个维度描述。对于 VQA，可以明确要求输出字段和格式。
-
-## 课时安排
-
-| 时间 | 内容 |
-| --- | --- |
-| 0-10 分钟 | 区分图像生成模型和视觉语言模型 |
-| 10-25 分钟 | 演示文生图提示词控制 |
-| 25-35 分钟 | 演示图像编辑流程 |
-| 35-50 分钟 | 演示图片描述、OCR、VQA、JSON 输出 |
-| 50-60 分钟 | 学员修改提示词并比较结果 |
-
-## 文件认知
-
-- `config.yaml`：保存生成提示词、编辑提示词、VQA 问题和输出目录。
-- `image_generation_and_vqa.py`：串联图像生成、图像编辑和图片问答。
+- `config.yaml`：统一配置文件，包含 `qwen_image` 和 `vlm` 两个配置块。
+- `qwen_image_generate.py`：Qwen-Image 调用脚本（生成与编辑）。
+- `vl_vqa.py`：视觉语言模型调用脚本（VQA）。
 - `outputs/generated_*.png`：文生图结果。
 - `outputs/edited_image.png`：图像编辑结果。
-- `outputs/vqa_results.json`：图片理解结果。
-- `todo.md`：课前准备事项。
+- `outputs/vqa_results.json`：VQA 结果。
 
-## 实验详细步骤
+## 配置说明（重点）
 
-1. 进入目录：
+在 `config.yaml` 中进行配置：
+
+### 1) Qwen-Image 配置（`qwen_image`）
+
+- `model_path`：Qwen-Image 模型目录。
+- `output_dir`：图片输出目录。
+- `generation_prompts`：文生图提示词列表（可配置多条）。
+- `edit_image_path`：待编辑图片路径；设为 `null` 表示跳过编辑。
+- `edit_prompt`：图像编辑提示词。
+
+### 2) VLM 配置（`vlm`）
+
+- `model_path`：Qwen-VL / InternVL 模型目录。
+- `image_path`：VQA 输入图片路径。
+- `output_dir`：VQA 输出目录。
+- `max_new_tokens`：回答最大生成长度。
+- `questions`：问题列表（可配置多条）。
+
+## 运行脚本
+
+进入目录：
 
 ```bash
 cd practice_03_qwen_image_vl
 ```
 
-2. 阅读配置：
+### 仅运行 Qwen-Image（文生图 + 可选编辑）
 
 ```bash
-sed -n '1,200p' config.yaml
+python qwen_image_generate.py --config config.yaml
 ```
 
-3. 运行完整流程：
+### 仅运行 Qwen-VL / InternVL（VQA）
 
 ```bash
-python image_generation_and_vqa.py --config config.yaml
+python vl_vqa.py --config config.yaml
 ```
 
-4. 查看结果：
+## 可配置项建议
+
+- 图像生成方向：
+  - 调整 `generation_prompts`，控制场景、主体、文字、风格。
+  - 切换 `edit_prompt` 比较编辑效果。
+- VQA 方向：
+  - 调整 `questions`，覆盖描述、OCR、结构化 JSON 输出。
+  - 调整 `max_new_tokens` 平衡回答完整度和速度。
+
+## 结果查看
 
 ```bash
 ls outputs
 cat outputs/vqa_results.json
 ```
-
-5. 修改 `generation_prompts`，从四个角度补充细节：
-
-- 场景：例如工业质检车间。
-- 主体：例如金属零件、检测相机。
-- 文字：例如画面中包含“缺陷检测”。
-- 风格：例如写实、高清、柔和灯光。
-
-6. 修改 `vqa_questions`，尝试：
-
-- 描述图片内容。
-- 识别图片文字。
-- 输出 JSON 字段：`summary`、`objects`、`texts`。
-
-## 观察记录
-
-| 任务 | 提示词修改 | 输出变化 |
-| --- | --- | --- |
-| 文生图 |  |  |
-| 图像编辑 |  |  |
-| OCR |  |  |
-| JSON 输出 |  |  |
-
-## 课后练习
-
-- 同一场景生成三种风格图片。
-- 对文档截图做 OCR 并输出结构化字段。
-- 对工业图片输出缺陷类别、位置描述和依据。
-
