@@ -1,24 +1,32 @@
-# Hugging Face / ModelScope 可用的 SAM 模型 ID，离线服务器可改成本地模型路径。
-sam_model_name: facebook/sam3
+# Model names can be Hugging Face ids or local model directories.
+sam2_model_name: facebook/sam2.1-hiera-large
+sam3_model_name: facebook/sam3
 
-# 置信度阈值：将概率 mask 转为二值 mask 时使用。
-confidence_threshold: 0.5
-
-# 推理设备：cuda 或 cpu。留空时脚本会自动检测。
+# Device: cuda or cpu. Leave empty to let scripts auto-detect.
 device: cuda
 
-# 输入图片路径与输出目录。
+# Input image path is resolved relative to this config file.
 image_path: ../dataset/images/seg_demo.jpg
+
+# Outputs are written under this directory:
+#   outputs/sam2
+#   outputs/sam3
 output_dir: outputs
 
-# 点提示：[x, y, label]，label=1 表示前景，label=0 表示背景。
+# Mask threshold for converting probability masks to binary masks.
+confidence_threshold: 0.5
+
+# SAM2 supports point prompts directly.
+# Format: [x, y, label], where label=1 means foreground and label=0 means background.
 point_prompts:
   - [320, 240, 1]
 
-# 框提示：[x1, y1, x2, y2]。
+# SAM2 and SAM3 both support box prompts.
+# Format: [x1, y1, x2, y2]
 box_prompts:
   - [100, 80, 520, 420]
 
-# 当前脚本保留该字段用于教学对比；SAM 推理时会提示并跳过。
+# SAM3 script keeps this field for teaching logs.
+# This classroom script still uses box prompts for deterministic visualization.
 text_prompts:
   - target object

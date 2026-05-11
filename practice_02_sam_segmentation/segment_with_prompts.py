@@ -1,9 +1,12 @@
-"""基于 transformers 的 SAM 提示分割示例。
+"""SAM prompt segmentation demo based on Hugging Face transformers.
 
-教学流程：
-1. 读取配置文件。
-2. 使用点提示或框提示执行分割。
-3. 保存 mask、可视化图片和 JSON 结果。
+The script supports two common processor styles:
+1. SAM/SAM2 style processors that accept point and box prompts directly.
+2. SAM3 style processors that use `images=...`, `input_boxes=...`, and
+   `input_boxes_labels=...`, followed by `post_process_instance_segmentation`.
+
+For SAM3, point prompts are converted to small positive boxes because the
+current SAM3 processor focuses on concept/text/box prompts.
 """
 
 import argparse
@@ -18,31 +21,40 @@ from PIL import Image
 
 
 def require_sam_transformers():
-    """按需导入深度学习依赖，缺依赖时给出更清晰的错误提示。"""
+    """Import heavy dependencies lazily and report a clear error if missing."""
 
     try:
         import torch
         from transformers import AutoModelForMaskGeneration, AutoProcessor
     except ImportError as exc:
-        raise RuntimeError("缺少依赖：请先安装 PyTorch 和 transformers。") from exc
+        raise RuntimeError("Missing dependencies. Please install PyTorch and transformers first.") from exc
     return torch, AutoModelForMaskGeneration, AutoProcessor
 
 
 def load_config(path: str) -> dict[str, Any]:
-    """读取 YAML 配置文件。"""
+    """Load the YAML config file."""
 
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
+def resolve_path(path_value: str | Path, base_dir: Path) -> Path:
+    """Resolve config paths relative to the config file, not the shell cwd."""
+
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve()
+
+
 def resolve_model_name(cfg: dict[str, Any]) -> str:
-    """从配置中获取 SAM 模型 ID 或本地路径。"""
+    """Read the SAM model id or local model path from config."""
 
     return str(cfg.get("sam_model_name") or "facebook/sam3")
 
 
 def build_model_and_processor(cfg: dict[str, Any]):
-    """创建模型、处理器和设备信息。"""
+    """Create model, processor, torch module, and device string."""
 
     torch, AutoModelForMaskGeneration, AutoProcessor = require_sam_transformers()
     device = cfg.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -52,29 +64,105 @@ def build_model_and_processor(cfg: dict[str, Any]):
     return torch, model, processor, device
 
 
-def postprocess_masks(processor, outputs, inputs) -> tuple[np.ndarray, np.ndarray]:
-    """将 SAM 原始输出还原到原图尺寸，并返回对应的 IoU 分数。"""
+def to_numpy_masks(masks: Any) -> np.ndarray:
+    """Convert torch/list/numpy masks to a numpy array."""
+
+    if hasattr(masks, "detach"):
+        masks = masks.detach().cpu().numpy()
+    return np.asarray(masks)
+
+
+def to_numpy_scores(scores: Any, count: int) -> np.ndarray:
+    """Convert optional scores to a 1-D numpy array."""
+
+    if scores is None:
+        return np.ones(count, dtype=np.float32)
+    if hasattr(scores, "detach"):
+        scores = scores.detach().cpu().numpy()
+    scores = np.asarray(scores).reshape(-1)
+    if scores.size == 0:
+        return np.ones(count, dtype=np.float32)
+    if scores.size < count:
+        scores = np.pad(scores, (0, count - scores.size), constant_values=float(scores[-1]))
+    return scores[:count]
+
+
+def postprocess_legacy_masks(processor, outputs, inputs) -> tuple[np.ndarray, np.ndarray]:
+    """Post-process masks for SAM/SAM2 style outputs."""
 
     masks = processor.image_processor.post_process_masks(
         outputs.pred_masks.cpu(),
         original_sizes=inputs["original_sizes"].cpu(),
         reshaped_input_sizes=inputs["reshaped_input_sizes"].cpu(),
     )[0]
-    scores = outputs.iou_scores[0].detach().cpu().numpy()
-    return masks.detach().cpu().numpy(), scores
+    scores = getattr(outputs, "iou_scores", None)
+    if scores is not None:
+        scores = scores[0].detach().cpu().numpy()
+    masks_np = to_numpy_masks(masks)
+    return masks_np, to_numpy_scores(scores, len(masks_np))
 
 
-def predict_with_box_prompt(image: Image.Image, box: list[float], model, processor, torch, device: str):
-    """对单个框提示执行 SAM 预测。"""
+def postprocess_sam3_masks(processor, outputs, inputs, threshold: float) -> tuple[np.ndarray, np.ndarray]:
+    """Post-process masks for SAM3 style outputs."""
 
-    inputs = processor(image, input_boxes=[[[float(v) for v in box]]], return_tensors="pt").to(device)
+    target_sizes = inputs.get("original_sizes")
+    if hasattr(target_sizes, "tolist"):
+        target_sizes = target_sizes.tolist()
+
+    results = processor.post_process_instance_segmentation(
+        outputs,
+        threshold=threshold,
+        mask_threshold=threshold,
+        target_sizes=target_sizes,
+    )[0]
+    masks = results.get("masks")
+    scores = results.get("scores")
+    if scores is None:
+        scores = results.get("confidence_scores")
+    masks_np = to_numpy_masks(masks)
+    return masks_np, to_numpy_scores(scores, len(masks_np))
+
+
+def run_box_prompt(image: Image.Image, box: list[float], model, processor, torch, device: str, threshold: float):
+    """Run one positive box prompt and return masks/scores."""
+
+    box_xyxy = [float(v) for v in box]
+
+    if hasattr(processor, "post_process_instance_segmentation"):
+        inputs = processor(
+            images=image,
+            input_boxes=[[box_xyxy]],
+            input_boxes_labels=[[1]],
+            return_tensors="pt",
+        ).to(device)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        return postprocess_sam3_masks(processor, outputs, inputs, threshold)
+
+    inputs = processor(image, input_boxes=[[[box_xyxy]]], return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
-    return postprocess_masks(processor, outputs, inputs)
+    return postprocess_legacy_masks(processor, outputs, inputs)
 
 
-def predict_with_point_prompt(image: Image.Image, point: list[float], model, processor, torch, device: str):
-    """对单个点提示执行 SAM 预测，点格式为 [x, y, label]。"""
+def point_to_box(point: list[float], image: Image.Image, radius: int = 12) -> list[float]:
+    """Convert a point prompt to a small xyxy box for SAM3 compatibility."""
+
+    x, y = float(point[0]), float(point[1])
+    width, height = image.size
+    return [
+        max(0.0, x - radius),
+        max(0.0, y - radius),
+        min(float(width - 1), x + radius),
+        min(float(height - 1), y + radius),
+    ]
+
+
+def run_point_prompt(image: Image.Image, point: list[float], model, processor, torch, device: str, threshold: float):
+    """Run one point prompt; SAM3 falls back to a small box around the point."""
+
+    if hasattr(processor, "post_process_instance_segmentation"):
+        return run_box_prompt(image, point_to_box(point, image), model, processor, torch, device, threshold)
 
     label = int(point[2]) if len(point) > 2 else 1
     inputs = processor(
@@ -85,37 +173,36 @@ def predict_with_point_prompt(image: Image.Image, point: list[float], model, pro
     ).to(device)
     with torch.no_grad():
         outputs = model(**inputs)
-    return postprocess_masks(processor, outputs, inputs)
+    return postprocess_legacy_masks(processor, outputs, inputs)
 
 
 def collect_predictions(image: Image.Image, cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    """收集所有提示的分割候选结果，统一整理为列表。"""
+    """Collect all segmentation candidates from configured prompts."""
 
     torch, model, processor, device = build_model_and_processor(cfg)
     threshold = float(cfg.get("confidence_threshold", 0.5))
     items: list[dict[str, Any]] = []
 
-    # 标准 SAM 接口主要使用点和框提示；文本提示在本脚本中只做教学提示。
     for prompt in cfg.get("text_prompts", []):
-        print(f"warning: 文本提示 '{prompt}' 当前不参与 SAM 推理，已跳过。")
+        print(f"warning: text prompt '{prompt}' is kept for teaching only and is skipped by this script.")
 
     for box in cfg.get("box_prompts", []):
-        masks, scores = predict_with_box_prompt(image, box, model, processor, torch, device)
+        masks, scores = run_box_prompt(image, box, model, processor, torch, device, threshold)
         for idx, mask in enumerate(masks):
-            binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+            binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
             items.append({"source": "box", "prompt": box, "mask": binary_mask, "score": float(scores[idx])})
 
     for point in cfg.get("point_prompts", []):
-        masks, scores = predict_with_point_prompt(image, point, model, processor, torch, device)
+        masks, scores = run_point_prompt(image, point, model, processor, torch, device, threshold)
         for idx, mask in enumerate(masks):
-            binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+            binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
             items.append({"source": "point", "prompt": point, "mask": binary_mask, "score": float(scores[idx])})
 
     return items
 
 
 def mask_to_bbox(mask: np.ndarray) -> list[int]:
-    """根据二值 mask 计算外接矩形，格式为 [x_min, y_min, x_max, y_max]。"""
+    """Compute an xyxy bounding box from a binary mask."""
 
     ys, xs = np.where(mask > 0)
     if len(xs) == 0:
@@ -124,7 +211,7 @@ def mask_to_bbox(mask: np.ndarray) -> list[int]:
 
 
 def draw_mask_like_modelscope(image: np.ndarray, mask: np.ndarray, color=(30, 180, 255), alpha=0.5) -> np.ndarray:
-    """以半透明填充和白色轮廓的方式可视化 mask。"""
+    """Draw a semi-transparent mask with a white contour."""
 
     vis = image.copy()
     color_layer = np.zeros_like(vis)
@@ -136,7 +223,7 @@ def draw_mask_like_modelscope(image: np.ndarray, mask: np.ndarray, color=(30, 18
 
 
 def save_outputs(image_np: np.ndarray, output_dir: Path, items: list[dict[str, Any]]) -> None:
-    """保存 mask 图片、可视化图片和 segments.json。"""
+    """Save mask images, visualization images, and segments.json."""
 
     records = []
     for idx, item in enumerate(items):
@@ -170,15 +257,18 @@ def save_outputs(image_np: np.ndarray, output_dir: Path, items: list[dict[str, A
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="使用 SAM 根据点/框提示执行图像分割。")
-    parser.add_argument("--config", default="config.yaml", help="配置文件路径")
+    parser = argparse.ArgumentParser(description="Run SAM segmentation with point/box prompts.")
+    parser.add_argument("--config", default="config.yaml", help="Path to config YAML.")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    output_dir = Path(cfg["output_dir"])
+    config_path = Path(args.config).resolve()
+    cfg = load_config(str(config_path))
+    config_dir = config_path.parent
+
+    output_dir = resolve_path(cfg["output_dir"], config_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    image = Image.open(cfg["image_path"]).convert("RGB")
+    image = Image.open(resolve_path(cfg["image_path"], config_dir)).convert("RGB")
     image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
     items = collect_predictions(image, cfg)

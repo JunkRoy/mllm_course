@@ -4,4 +4,4 @@ Pillow
 PyYAML
 torch
 torchvision
-# Install Meta SAM3 separately from https://github.com/facebookresearch/sam3
+transformers
