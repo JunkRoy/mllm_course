@@ -10,6 +10,8 @@ from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 
 
 def gpu_status() -> dict:
+    """返回当前 CUDA/GPU 状态，方便写入推理结果用于排查环境问题。"""
+
     if not torch.cuda.is_available():
         return {"cuda_available": False, "gpu_count": 0}
     try:
@@ -23,6 +25,8 @@ def gpu_status() -> dict:
 
 
 def load_config(path: str) -> dict:
+    """读取 YAML 配置文件。"""
+
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -36,6 +40,7 @@ def main() -> None:
     output_dir = Path(cfg["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 按配置加载本地模型和处理器；local_files_only 避免服务器离线时误触发下载。
     processor = AutoProcessor.from_pretrained(cfg["model_path"], local_files_only=True, trust_remote_code=True)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         cfg["model_path"],
@@ -45,11 +50,14 @@ def main() -> None:
         device_map=cfg.get("device", "auto"),
     )
 
+    # 构造 Qwen-VL 聊天模板：同一轮 user 消息中同时包含图片和文本问题。
     image = Image.open(cfg["image_path"]).convert("RGB")
     messages = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": cfg["prompt"]}]}]
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = processor(text=[text], images=[image], return_tensors="pt").to(model.device)
     generated = model.generate(**inputs, max_new_tokens=int(cfg.get("max_new_tokens", 256)))
+
+    # generated 中前半段是输入 token，切掉后只保留模型新生成的回答。
     answer = processor.batch_decode(generated[:, inputs["input_ids"].shape[1] :], skip_special_tokens=True)[0]
 
     result = {"gpu": gpu_status(), "image_path": cfg["image_path"], "prompt": cfg["prompt"], "answer": answer}
@@ -59,4 +67,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -8,11 +8,15 @@ import yaml
 
 
 def load_config(path: str) -> dict:
+    """读取数据构造与格式转换配置。"""
+
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def split_images(image_dir: Path, ratios: dict) -> dict[str, list[Path]]:
+    """按配置比例将图片划分为 train/val/test。"""
+
     images = sorted([p for p in image_dir.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}])
     random.seed(42)
     random.shuffle(images)
@@ -23,6 +27,8 @@ def split_images(image_dir: Path, ratios: dict) -> dict[str, list[Path]]:
 
 
 def write_coco(records: list[dict], class_names: list[str], path: Path) -> None:
+    """将内部 records 写成 COCO 检测格式。"""
+
     categories = [{"id": i + 1, "name": name} for i, name in enumerate(class_names)]
     images, annotations = [], []
     for image_id, item in enumerate(records, start=1):
@@ -42,13 +48,16 @@ def write_coco(records: list[dict], class_names: list[str], path: Path) -> None:
 
 
 def write_jsonl(records: list[dict], path: Path) -> None:
+    """将 records 按一行一个 JSON 样本写成 JSONL。"""
+
     with path.open("w", encoding="utf-8") as f:
         for item in records:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
 def prelabel_placeholder(records: list[dict], class_names: list[str]) -> list[dict]:
-    # Replace this function with SAM/SAM3 + Grounding DINO calls when local weights are available.
+    """为没有标注的样本补一个占位框，便于演示完整转换流程。"""
+
     prepared = []
     default_label = class_names[0] if class_names else "object"
     for item in records:
@@ -71,6 +80,8 @@ def prelabel_placeholder(records: list[dict], class_names: list[str]) -> list[di
 
 
 def write_yolo(records: list[dict], class_names: list[str], output_dir: Path) -> None:
+    """将 bbox 转成 YOLO 归一化格式并逐图写入 txt。"""
+
     label_dir = output_dir / "labels_yolo"
     label_dir.mkdir(parents=True, exist_ok=True)
     for item in records:
@@ -84,6 +95,8 @@ def write_yolo(records: list[dict], class_names: list[str], output_dir: Path) ->
 
 
 def main() -> None:
+    """命令行入口：划分图片并导出 COCO、YOLO 和 JSONL。"""
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
     args = parser.parse_args()

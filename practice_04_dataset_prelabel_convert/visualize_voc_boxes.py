@@ -15,7 +15,8 @@ except ImportError:  # pragma: no cover - tqdm 只是进度条，缺失时不影
 
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-DEFAULT_DATASET_ROOT = Path(r"E:\培训相关\case\2026-中海油-多模态\dataset")
+# 默认约定：dataset 与 practice_04_dataset_prelabel_convert 位于同一级目录。
+DEFAULT_DATASET_ROOT = Path(__file__).resolve().parents[1] / "dataset"
 CLASS_COLORS = {
     "head": (255, 99, 71),
     "helmet": (50, 180, 90),

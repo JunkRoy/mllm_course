@@ -1,3 +1,5 @@
+"""Qwen-Image 图像生成和可选图片编辑示例。"""
+
 import argparse
 import json
 from pathlib import Path
@@ -8,16 +10,16 @@ from diffusers import DiffusionPipeline
 from PIL import Image
 
 
-# 读取 YAML 配置文件，并返回字典结构。
 def load_config(path: str) -> dict:
+    """读取 YAML 配置文件。"""
+
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-# 按配置加载 Qwen-Image 推理管线。
-# - local_files_only=True: 仅从本地加载模型，避免联网下载。
-# - torch_dtype: 有 GPU 时默认 FP16 以减少显存占用。
 def build_pipeline(model_path: str) -> DiffusionPipeline:
+    """按配置加载 Qwen-Image 推理管线。"""
+
     pipe = DiffusionPipeline.from_pretrained(
         model_path,
         local_files_only=True,
@@ -29,9 +31,9 @@ def build_pipeline(model_path: str) -> DiffusionPipeline:
     return pipe
 
 
-# 根据 generation_prompts 批量文生图。
-# 每条 prompt 生成一张图片，并按 generated_XXX.png 命名保存。
 def generate_images(cfg: dict, output_dir: Path, pipe: DiffusionPipeline) -> list[str]:
+    """根据 generation_prompts 批量文生图，并返回保存路径列表。"""
+
     saved_paths = []
     for idx, prompt in enumerate(cfg.get("generation_prompts", [])):
         image = pipe(prompt=prompt).images[0]
@@ -41,9 +43,9 @@ def generate_images(cfg: dict, output_dir: Path, pipe: DiffusionPipeline) -> lis
     return saved_paths
 
 
-# 可选图像编辑流程：当 edit_image_path 为空时直接跳过。
-# 部分模型的 pipe.__call__ 支持 image 参数，部分不支持，故做兼容判断。
 def edit_image(cfg: dict, output_dir: Path, pipe: DiffusionPipeline) -> str | None:
+    """执行可选图片编辑；未配置 edit_image_path 时直接跳过。"""
+
     edit_image_path = cfg.get("edit_image_path")
     if not edit_image_path:
         return None
@@ -51,6 +53,8 @@ def edit_image(cfg: dict, output_dir: Path, pipe: DiffusionPipeline) -> str | No
     source_image = Image.open(edit_image_path).convert("RGB")
     prompt = cfg.get("edit_prompt", "保持主体结构不变，增强画面清晰度和工业质感。")
     call_args = {"prompt": prompt}
+
+    # 不同 diffusion pipeline 的调用签名不同，这里只在支持 image 参数时传入原图。
     if "image" in pipe.__call__.__code__.co_varnames:
         call_args["image"] = source_image
 
@@ -61,24 +65,20 @@ def edit_image(cfg: dict, output_dir: Path, pipe: DiffusionPipeline) -> str | No
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="使用 Qwen-Image 进行图像生成与编辑")
+    parser = argparse.ArgumentParser(description="使用 Qwen-Image 进行图像生成与编辑。")
     parser.add_argument("--config", default="config.yaml", help="配置文件路径")
     args = parser.parse_args()
 
-    # 仅使用配置中的 qwen_image 区块。
     cfg = load_config(args.config)
     image_cfg = cfg["qwen_image"]
 
-    # 创建输出目录（若不存在则自动创建）。
     output_dir = Path(image_cfg.get("output_dir", "outputs"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 先执行文生图，再执行可选编辑流程。
     pipe = build_pipeline(image_cfg["model_path"])
     generated_paths = generate_images(image_cfg, output_dir, pipe)
     edited_path = edit_image(image_cfg, output_dir, pipe)
 
-    # 控制台输出本次任务摘要，方便自动化脚本读取。
     summary = {
         "generated_count": len(generated_paths),
         "generated_paths": generated_paths,

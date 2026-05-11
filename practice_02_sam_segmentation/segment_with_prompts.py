@@ -1,9 +1,9 @@
-"""基于 transformers 的 SAM3 提示分割示例。
+"""基于 transformers 的 SAM 提示分割示例。
 
 教学流程：
-1）读取配置
-2）使用点/框提示执行分割
-3）保存 mask/可视化/JSON 结果
+1. 读取配置文件。
+2. 使用点提示或框提示执行分割。
+3. 保存 mask、可视化图片和 JSON 结果。
 """
 
 import argparse
@@ -18,34 +18,32 @@ from PIL import Image
 
 
 def require_sam_transformers():
-    """按需导入 torch 与 transformers 组件，缺依赖时给出明确报错。"""
+    """按需导入深度学习依赖，缺依赖时给出更清晰的错误提示。"""
+
     try:
         import torch
         from transformers import AutoModelForMaskGeneration, AutoProcessor
     except ImportError as exc:
-        raise RuntimeError(
-            "缺少依赖：请先安装 PyTorch 和 transformers。"
-        ) from exc
+        raise RuntimeError("缺少依赖：请先安装 PyTorch 和 transformers。") from exc
     return torch, AutoModelForMaskGeneration, AutoProcessor
 
 
 def load_config(path: str) -> dict[str, Any]:
     """读取 YAML 配置文件。"""
+
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def resolve_model_name(cfg: dict[str, Any]) -> str:
-    """从配置中获取模型 ID，默认使用 ModelScope/HF 可用的 `facebook/sam3`。"""
+    """从配置中获取 SAM 模型 ID 或本地路径。"""
+
     return str(cfg.get("sam_model_name") or "facebook/sam3")
 
 
 def build_model_and_processor(cfg: dict[str, Any]):
-    """创建模型、处理器与设备信息。
+    """创建模型、处理器和设备信息。"""
 
-    返回：
-        torch 模块、模型实例、处理器实例、设备字符串
-    """
     torch, AutoModelForMaskGeneration, AutoProcessor = require_sam_transformers()
     device = cfg.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
     model_name = resolve_model_name(cfg)
@@ -55,7 +53,8 @@ def build_model_and_processor(cfg: dict[str, Any]):
 
 
 def postprocess_masks(processor, outputs, inputs) -> tuple[np.ndarray, np.ndarray]:
-    """将 SAM 原始输出还原为原图尺寸的 mask，并返回对应 IoU 分数。"""
+    """将 SAM 原始输出还原到原图尺寸，并返回对应的 IoU 分数。"""
+
     masks = processor.image_processor.post_process_masks(
         outputs.pred_masks.cpu(),
         original_sizes=inputs["original_sizes"].cpu(),
@@ -67,6 +66,7 @@ def postprocess_masks(processor, outputs, inputs) -> tuple[np.ndarray, np.ndarra
 
 def predict_with_box_prompt(image: Image.Image, box: list[float], model, processor, torch, device: str):
     """对单个框提示执行 SAM 预测。"""
+
     inputs = processor(image, input_boxes=[[[float(v) for v in box]]], return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -74,10 +74,8 @@ def predict_with_box_prompt(image: Image.Image, box: list[float], model, process
 
 
 def predict_with_point_prompt(image: Image.Image, point: list[float], model, processor, torch, device: str):
-    """对单个点提示执行 SAM 预测。
+    """对单个点提示执行 SAM 预测，点格式为 [x, y, label]。"""
 
-    点格式：[x, y, label]，其中 label=1 表示前景，0 表示背景。
-    """
     label = int(point[2]) if len(point) > 2 else 1
     inputs = processor(
         image,
@@ -91,14 +89,15 @@ def predict_with_point_prompt(image: Image.Image, point: list[float], model, pro
 
 
 def collect_predictions(image: Image.Image, cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    """收集所有提示的预测结果，统一整理为列表。"""
+    """收集所有提示的分割候选结果，统一整理为列表。"""
+
     torch, model, processor, device = build_model_and_processor(cfg)
     threshold = float(cfg.get("confidence_threshold", 0.5))
     items: list[dict[str, Any]] = []
 
-    # 文本提示当前不参与推理：标准 SAM 接口主要面向点/框几何提示。
+    # 标准 SAM 接口主要使用点和框提示；文本提示在本脚本中只做教学提示。
     for prompt in cfg.get("text_prompts", []):
-        print(f"warning: 文本提示 '{prompt}' 当前不支持，将跳过")
+        print(f"warning: 文本提示 '{prompt}' 当前不参与 SAM 推理，已跳过。")
 
     for box in cfg.get("box_prompts", []):
         masks, scores = predict_with_box_prompt(image, box, model, processor, torch, device)
@@ -116,7 +115,8 @@ def collect_predictions(image: Image.Image, cfg: dict[str, Any]) -> list[dict[st
 
 
 def mask_to_bbox(mask: np.ndarray) -> list[int]:
-    """根据二值 mask 计算外接框 bbox=[x_min,y_min,x_max,y_max]。"""
+    """根据二值 mask 计算外接矩形，格式为 [x_min, y_min, x_max, y_max]。"""
+
     ys, xs = np.where(mask > 0)
     if len(xs) == 0:
         return [0, 0, 0, 0]
@@ -124,7 +124,8 @@ def mask_to_bbox(mask: np.ndarray) -> list[int]:
 
 
 def draw_mask_like_modelscope(image: np.ndarray, mask: np.ndarray, color=(30, 180, 255), alpha=0.5) -> np.ndarray:
-    """以半透明填充+白色轮廓的方式可视化 mask（接近 ModelScope 风格）。"""
+    """以半透明填充和白色轮廓的方式可视化 mask。"""
+
     vis = image.copy()
     color_layer = np.zeros_like(vis)
     color_layer[mask > 0] = color
@@ -135,7 +136,8 @@ def draw_mask_like_modelscope(image: np.ndarray, mask: np.ndarray, color=(30, 18
 
 
 def save_outputs(image_np: np.ndarray, output_dir: Path, items: list[dict[str, Any]]) -> None:
-    """保存 mask 图片、可视化图片与 segments.json。"""
+    """保存 mask 图片、可视化图片和 segments.json。"""
+
     records = []
     for idx, item in enumerate(items):
         mask = item["mask"]
@@ -147,7 +149,15 @@ def save_outputs(image_np: np.ndarray, output_dir: Path, items: list[dict[str, A
         cv2.rectangle(vis, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (30, 255, 30), 2)
         score = item.get("score")
         if score is not None:
-            cv2.putText(vis, f"score={score:.3f}", (bbox[0], max(20, bbox[1] - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(
+                vis,
+                f"score={score:.3f}",
+                (bbox[0], max(20, bbox[1] - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2,
+            )
         cv2.imwrite(str(output_dir / f"visual_{idx:03d}.jpg"), vis)
 
         record = {"id": idx, "source": item["source"], "prompt": item["prompt"], "bbox": bbox}
@@ -160,7 +170,7 @@ def save_outputs(image_np: np.ndarray, output_dir: Path, items: list[dict[str, A
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="使用 SAM 根据点/框提示执行图像分割。")
     parser.add_argument("--config", default="config.yaml", help="配置文件路径")
     args = parser.parse_args()
 

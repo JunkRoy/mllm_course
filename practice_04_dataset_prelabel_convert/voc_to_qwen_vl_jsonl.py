@@ -16,7 +16,8 @@ except ImportError:  # pragma: no cover - tqdm 只是进度条，缺失时不影
 
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-DEFAULT_DATASET_ROOT = Path(r"E:\培训相关\case\2026-中海油-多模态\dataset")
+# 默认约定：dataset 与 practice_04_dataset_prelabel_convert 位于同一级目录。
+DEFAULT_DATASET_ROOT = Path(__file__).resolve().parents[1] / "dataset"
 DEFAULT_PROMPT = (
     "请检测图片中的安全帽和未佩戴安全帽的头部。"
     "请只输出 JSON 数组，每个元素包含 label 和 bbox，"

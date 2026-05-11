@@ -38,7 +38,8 @@ except ImportError:  # pragma: no cover - tqdm 只是进度条，缺失时不影
 
 # 支持查找的常见图片后缀。XML 中的 filename 有时会缺后缀或后缀大小写不一致。
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-DEFAULT_DATASET_ROOT = Path(r"E:\培训相关\case\2026-中海油-多模态\dataset")
+# 默认约定：dataset 与 practice_04_dataset_prelabel_convert 位于同一级目录。
+DEFAULT_DATASET_ROOT = Path(__file__).resolve().parents[1] / "dataset"
 
 # 最终训练只保留这两个类别：未戴安全帽的头部、安全帽。
 CLASSES = ("head", "helmet")

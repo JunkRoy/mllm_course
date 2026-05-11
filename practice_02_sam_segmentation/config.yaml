@@ -1,25 +1,24 @@
-# Hugging Face / ModelScope 可用的模型 ID。
-# 默认推荐 facebook/sam3。
+# Hugging Face / ModelScope 可用的 SAM 模型 ID，离线服务器可改成本地模型路径。
 sam_model_name: facebook/sam3
 
-# 置信度阈值：对掩码概率图做二值化时使用。
+# 置信度阈值：将概率 mask 转为二值 mask 时使用。
 confidence_threshold: 0.5
 
-# 推理设备：cuda 或 cpu。留空时会自动检测。
+# 推理设备：cuda 或 cpu。留空时脚本会自动检测。
 device: cuda
 
-# 输入图片路径与输出目录
-image_path: ../data/images/seg_demo.jpg
+# 输入图片路径与输出目录。
+image_path: ../dataset/images/seg_demo.jpg
 output_dir: outputs
 
-# 点提示：[x, y, label]，label=1 前景，label=0 背景
+# 点提示：[x, y, label]，label=1 表示前景，label=0 表示背景。
 point_prompts:
   - [320, 240, 1]
 
-# 框提示：[x1, y1, x2, y2]
+# 框提示：[x1, y1, x2, y2]。
 box_prompts:
   - [100, 80, 520, 420]
 
-# 当前脚本保留字段用于教学对比；SAM 推理时会提示并跳过
+# 当前脚本保留该字段用于教学对比；SAM 推理时会提示并跳过。
 text_prompts:
   - target object

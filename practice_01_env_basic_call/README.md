@@ -1,94 +1,165 @@
-# 实操 1：视觉大模型环境说明与基础调用
+# 实操 1：视觉大模型环境检查与基础调用
 
-课时：1 小时
+本章节面向第一次运行多模态模型脚本的同学。目标不是马上训练模型，而是先完成一个最小闭环：
 
-本节默认模型、数据和运行环境已经就绪。学习重点是看懂一个视觉大模型推理项目的基本结构，并完成一次“图片 + 问题 -> 模型回答 -> 结果保存”的最小闭环。
+1. 检查 Ubuntu 环境和 Python 依赖。
+2. 阅读 `config.yaml`，理解模型路径、图片路径和提示词。
+3. 运行一次图片问答推理。
+4. 查看 `outputs/result.json`，确认模型回答和运行信息已经保存。
 
-## 学习目标
+## 1. 学习目标
 
-- 认识视觉大模型项目中的配置文件、推理脚本和输出目录。
-- 理解 GPU 状态、模型加载、图片输入、提示词和输出结果之间的关系。
-- 学会通过修改 `config.yaml` 改变输入图片、提示词和生成长度。
-- 学会阅读 `outputs/result.json`，判断一次推理是否完成。
+完成本节后，你应该能做到：
 
-## 背景知识
+- 看懂一个视觉语言模型推理脚本的基本结构。
+- 知道 `config.yaml` 中每个字段的作用。
+- 能用一张图片和一个问题调用模型。
+- 能判断输出文件是否正常生成。
+- 能通过修改 prompt 观察模型回答的变化。
 
-视觉语言模型可以同时接收图片和文字。图片提供视觉信息，提示词告诉模型要完成什么任务，例如“描述图片”“识别文字”“按 JSON 输出对象列表”。
+## 2. 目录结构
 
-一次基础推理通常包含 5 个步骤：
+请先进入项目根目录：
 
-1. 读取配置。
-2. 加载模型和处理器。
-3. 读取图片。
-4. 组织图片和文字提示。
-5. 生成回答并保存结果。
+```bash
+cd mllm_course
+```
 
-`config.yaml` 是本节最重要的入口。学习时可以先从配置文件入手，不急着修改 Python 代码，这样更容易观察模型输出变化。
+查看本节文件：
 
-## 课时安排
+```bash
+ls practice_01_env_basic_call
+```
 
-| 时间 | 内容 |
+主要文件说明：
+
+| 文件 | 作用 |
 | --- | --- |
-| 0-10 分钟 | 认识项目目录：配置、脚本、输出 |
-| 10-20 分钟 | 理解 GPU、模型加载和本地模型调用 |
-| 20-35 分钟 | 阅读 `config.yaml` 和推理主流程 |
-| 35-50 分钟 | 修改图片、提示词和生成长度并运行 |
-| 50-60 分钟 | 查看结果文件，复盘参数变化带来的差异 |
+| `config.yaml` | 保存模型路径、输入图片、提示词、输出目录和生成参数 |
+| `run_basic_inference.py` | 基础视觉问答推理脚本 |
+| `requirements.txt` | 本节需要的 Python 依赖 |
+| `outputs/result.json` | 脚本运行后的结果文件 |
 
-## 文件认知
+## 3. 环境准备
 
-- `config.yaml`：保存模型路径、图片路径、提示词、输出目录和生成参数。
-- `run_basic_inference.py`：完整的基础推理脚本。
-- `outputs/result.json`：推理结果文件，包含 GPU 信息、输入信息和模型回答。
-- `todo.md`：课前材料、模型、数据和依赖准备事项。
+建议在 Ubuntu 中使用虚拟环境。下面命令假设你已经创建并激活了 Python 环境。
 
-## 实验详细步骤
+安装依赖：
 
-1. 进入实操目录：
+```bash
+pip install -r practice_01_env_basic_call/requirements.txt
+```
+
+检查 PyTorch 是否能导入：
+
+```bash
+python -c "import torch; print(torch.__version__); print('cuda:', torch.cuda.is_available())"
+```
+
+如果服务器有 NVIDIA GPU，可以查看显卡状态：
+
+```bash
+nvidia-smi
+```
+
+## 4. 检查配置文件
+
+查看配置：
+
+```bash
+sed -n '1,160p' practice_01_env_basic_call/config.yaml
+```
+
+你需要重点关注：
+
+| 字段 | 含义 |
+| --- | --- |
+| `model_path` | 本地模型目录，例如 `../public_pretrain_models/Qwen3-VL-2B-Thinking` |
+| `image_path` | 输入图片路径，默认从同级 `dataset` 目录读取 |
+| `prompt` | 你希望模型回答的问题 |
+| `output_dir` | 输出目录 |
+| `max_new_tokens` | 最多生成多少 token |
+| `device` | 模型加载设备，通常为 `auto` |
+
+## 5. 运行基础推理
+
+从项目根目录运行：
+
+```bash
+python practice_01_env_basic_call/run_basic_inference.py \
+  --config practice_01_env_basic_call/config.yaml
+```
+
+也可以进入本节目录后运行：
 
 ```bash
 cd practice_01_env_basic_call
-```
-
-2. 阅读配置文件：
-
-```bash
-sed -n '1,120p' config.yaml
-```
-
-3. 运行基础推理：
-
-```bash
 python run_basic_inference.py --config config.yaml
 ```
 
-4. 查看输出：
-
-```bash
-cat outputs/result.json
-```
-
-5. 修改 `config.yaml` 中的 `prompt`，例如改成：
+正常情况下，终端会打印一段 JSON，并且生成：
 
 ```text
-请列出图片中的主要对象，并说明它们之间的关系。
+practice_01_env_basic_call/outputs/result.json
 ```
 
-6. 再次运行脚本，并比较前后结果。
+## 6. 查看输出结果
 
-7. 修改 `max_new_tokens`，观察回答长度变化。
+查看结果文件：
 
-## 观察记录
+```bash
+cat practice_01_env_basic_call/outputs/result.json
+```
 
-| 实验项 | 修改内容 | 观察到的输出变化 |
-| --- | --- | --- |
-| 提示词 1 |  |  |
-| 提示词 2 |  |  |
-| 生成长度 |  |  |
-| 更换图片 |  |  |
+重点检查：
 
-## 课后练习
+- `gpu`：是否检测到 CUDA 和 GPU 信息。
+- `image_path`：本次输入图片路径。
+- `prompt`：本次输入问题。
+- `answer`：模型生成的回答。
 
-- 让模型只输出 JSON。
-- 让模型输出“场景、对象、文字、风险点”四个字段。
-- 对同一张图片提出三个不同问题，比较回答差异。
+## 7. 修改提示词再运行
+
+打开 `config.yaml`，把 `prompt` 改成更具体的问题，例如：
+
+```yaml
+prompt: 请列出图片中的主要对象，并用 JSON 数组返回。
+```
+
+再次运行：
+
+```bash
+python practice_01_env_basic_call/run_basic_inference.py \
+  --config practice_01_env_basic_call/config.yaml
+```
+
+观察 `answer` 是否更接近你要求的格式。
+
+## 8. 常见问题
+
+问题：模型路径不存在。
+
+解决：检查 `config.yaml` 中的 `model_path`，确认服务器上已经放好了模型权重。
+
+问题：图片路径不存在。
+
+解决：检查 `image_path`。本课程推荐把公共数据放在项目根目录同级的 `dataset` 目录中。
+
+问题：CUDA 不可用。
+
+解决：先运行 `nvidia-smi`，再检查 PyTorch 是否安装了 CUDA 版本。
+
+问题：输出目录不存在。
+
+说明：脚本会自动创建 `output_dir`，通常不需要手动创建。
+
+## 9. 学习任务
+
+请完成下面练习：
+
+1. 修改 `prompt`，让模型只输出 JSON。
+2. 修改 `max_new_tokens`，观察回答长度变化。
+3. 更换一张图片，比较模型回答是否变化。
+4. 在 `result.json` 中找到模型回答字段。
+
+完成这些任务后，你就跑通了视觉语言模型推理的最小流程。
