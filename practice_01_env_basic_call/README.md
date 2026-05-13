@@ -1,87 +1,52 @@
-# 实操 1：视觉大模型环境检查与基础调用
+# 实操 1：环境检查与 Qwen3-VL 基础调用
 
-本章节面向第一次运行多模态模型脚本的同学。目标不是马上训练模型，而是先完成一个最小闭环：
+本节目标是先跑通一个最小闭环：读取一张图片，向 Qwen3-VL 提问，把回答保存成 JSON。
 
-1. 检查 Ubuntu 环境和 Python 依赖。
-2. 阅读 `config.yaml`，理解模型路径、图片路径和提示词。
-3. 运行一次图片问答推理。
-4. 查看 `outputs/result.json`，确认模型回答和运行信息已经保存。
-
-## 1. 学习目标
-
-完成本节后，你应该能做到：
-
-- 看懂一个视觉语言模型推理脚本的基本结构。
-- 知道 `config.yaml` 中每个字段的作用。
-- 能用一张图片和一个问题调用模型。
-- 能判断输出文件是否正常生成。
-- 能通过修改 prompt 观察模型回答的变化。
-
-## 2. 目录结构
-
-请先进入项目根目录：
-
-```bash
-cd mllm_course
-```
-
-查看本节文件：
-
-```bash
-ls practice_01_env_basic_call
-```
-
-主要文件说明：
+## 1. 本节文件
 
 | 文件 | 作用 |
 | --- | --- |
-| `config.yaml` | 保存模型路径、输入图片、提示词、输出目录和生成参数 |
-| `run_basic_inference.py` | 基础视觉问答推理脚本 |
-| `requirements.txt` | 本节需要的 Python 依赖 |
-| `outputs/result.json` | 脚本运行后的结果文件 |
+| `config.yaml` | 配置模型路径、图片路径、提示词和输出目录 |
+| `run_basic_inference.py` | 基础图片问答脚本 |
+| `requirements.txt` | 本节依赖 |
+| `outputs/result.json` | 推理结果，脚本运行后生成 |
 
-## 3. 环境准备
+## 2. 当前配置
 
-建议在 Ubuntu 中使用虚拟环境。下面命令假设你已经创建并激活了 Python 环境。
+当前 `config.yaml` 使用服务器上的真实路径：
 
-安装依赖：
+```yaml
+model_path: /root/autodl-tmp/Qwen3-VL-8B-Instruct/
+image_path: /root/autodl-tmp/dataset/images/img-1.png
+prompt: 请描述图片中的主要内容，并给出可见对象列表。
+output_dir: outputs
+max_new_tokens: 256
+device: auto
+```
+
+运行前请确认：
+
+```bash
+ls /root/autodl-tmp/Qwen3-VL-8B-Instruct/
+ls /root/autodl-tmp/dataset/images/img-1.png
+```
+
+## 3. 安装依赖
+
+在项目根目录执行：
 
 ```bash
 pip install -r practice_01_env_basic_call/requirements.txt
 ```
 
-检查 PyTorch 是否能导入：
-
-```bash
-python -c "import torch; print(torch.__version__); print('cuda:', torch.cuda.is_available())"
-```
-
-如果服务器有 NVIDIA GPU，可以查看显卡状态：
+检查 GPU：
 
 ```bash
 nvidia-smi
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
 ```
 
-## 4. 检查配置文件
-
-查看配置：
-
-```bash
-sed -n '1,160p' practice_01_env_basic_call/config.yaml
-```
-
-你需要重点关注：
-
-| 字段 | 含义 |
-| --- | --- |
-| `model_path` | 本地模型目录，例如 `../public_pretrain_models/Qwen3-VL-2B-Thinking` |
-| `image_path` | 输入图片路径，默认从同级 `dataset` 目录读取 |
-| `prompt` | 你希望模型回答的问题 |
-| `output_dir` | 输出目录 |
-| `max_new_tokens` | 最多生成多少 token |
-| `device` | 模型加载设备，通常为 `auto` |
-
-## 5. 运行基础推理
+## 4. 运行
 
 从项目根目录运行：
 
@@ -90,76 +55,58 @@ python practice_01_env_basic_call/run_basic_inference.py \
   --config practice_01_env_basic_call/config.yaml
 ```
 
-也可以进入本节目录后运行：
+脚本会：
+
+1. 加载 `model_path` 中的本地 Qwen3-VL。
+2. 打开 `image_path` 指定的图片。
+3. 使用 `prompt` 提问。
+4. 把回答和 GPU 信息写入 `outputs/result.json`。
+
+## 5. 查看结果
 
 ```bash
-cd practice_01_env_basic_call
-python run_basic_inference.py --config config.yaml
+cat outputs/result.json
 ```
 
-正常情况下，终端会打印一段 JSON，并且生成：
+结果中重点看：
 
-```text
-practice_01_env_basic_call/outputs/result.json
-```
+| 字段 | 含义 |
+| --- | --- |
+| `gpu` | CUDA、GPU 数量和显存状态 |
+| `image_path` | 本次输入图片 |
+| `prompt` | 本次问题 |
+| `answer` | 模型回答 |
 
-## 6. 查看输出结果
+## 6. 修改实验
 
-查看结果文件：
-
-```bash
-cat practice_01_env_basic_call/outputs/result.json
-```
-
-重点检查：
-
-- `gpu`：是否检测到 CUDA 和 GPU 信息。
-- `image_path`：本次输入图片路径。
-- `prompt`：本次输入问题。
-- `answer`：模型生成的回答。
-
-## 7. 修改提示词再运行
-
-打开 `config.yaml`，把 `prompt` 改成更具体的问题，例如：
+想换问题，只改 `config.yaml`：
 
 ```yaml
-prompt: 请列出图片中的主要对象，并用 JSON 数组返回。
+prompt: 请用 JSON 数组列出图片中的主要物体。
 ```
 
-再次运行：
+想换图片，只改：
 
-```bash
-python practice_01_env_basic_call/run_basic_inference.py \
-  --config practice_01_env_basic_call/config.yaml
+```yaml
+image_path: /root/autodl-tmp/dataset/images/你的图片.png
 ```
 
-观察 `answer` 是否更接近你要求的格式。
+然后重新运行第 4 步。
 
-## 8. 常见问题
+## 7. 常见问题
 
 问题：模型路径不存在。
 
-解决：检查 `config.yaml` 中的 `model_path`，确认服务器上已经放好了模型权重。
+解决：检查 `/root/autodl-tmp/Qwen3-VL-8B-Instruct/` 是否存在，里面应有模型权重和配置文件。
 
 问题：图片路径不存在。
 
-解决：检查 `image_path`。本课程推荐把公共数据放在项目根目录同级的 `dataset` 目录中。
+解决：检查 `image_path`，路径必须指向真实图片。
 
-问题：CUDA 不可用。
+问题：显存不足。
 
-解决：先运行 `nvidia-smi`，再检查 PyTorch 是否安装了 CUDA 版本。
+解决：先用更小模型或更小图片验证流程；本节只是基础调用，不建议一开始就换很大的输入。
 
-问题：输出目录不存在。
+问题：SSH 断开。
 
-说明：脚本会自动创建 `output_dir`，通常不需要手动创建。
-
-## 9. 学习任务
-
-请完成下面练习：
-
-1. 修改 `prompt`，让模型只输出 JSON。
-2. 修改 `max_new_tokens`，观察回答长度变化。
-3. 更换一张图片，比较模型回答是否变化。
-4. 在 `result.json` 中找到模型回答字段。
-
-完成这些任务后，你就跑通了视觉语言模型推理的最小流程。
+解决：本节推理很短，一般不需要后台运行；后面长时间训练请用 `screen` 或 `nohup`。

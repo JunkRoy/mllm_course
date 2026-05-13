@@ -42,16 +42,20 @@ def resolve_path(path_value: str | Path, base_dir: Path) -> Path:
 
 
 def import_sam3():
-    """Import SAM3-compatible auto classes lazily."""
+    """Import SAM3 image classes lazily.
+
+    Avoid AutoProcessor here: some transformers builds resolve facebook/sam3 to
+    a sam3_video processor, which does not route input_boxes correctly.
+    """
 
     try:
         import torch
-        from transformers import AutoModelForMaskGeneration, AutoProcessor
+        from transformers import Sam3Model, Sam3Processor
     except ImportError as exc:
         raise RuntimeError(
-            "SAM3 requires torch and a transformers version with AutoModelForMaskGeneration/AutoProcessor support."
+            "SAM3 requires torch and a transformers version with Sam3Model/Sam3Processor support."
         ) from exc
-    return torch, AutoModelForMaskGeneration, AutoProcessor
+    return torch, Sam3Model, Sam3Processor
 
 
 def import_image():
@@ -74,11 +78,11 @@ def require_cv2():
 def build_model_and_processor(cfg: dict[str, Any]):
     """Load SAM3 model and processor."""
 
-    torch, AutoModelForMaskGeneration, AutoProcessor = import_sam3()
+    torch, Sam3Model, Sam3Processor = import_sam3()
     device = cfg.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
     model_name = str(cfg.get("sam3_model_name") or cfg.get("sam_model_name") or "facebook/sam3")
-    model = AutoModelForMaskGeneration.from_pretrained(model_name).to(device)
-    processor = AutoProcessor.from_pretrained(model_name)
+    model = Sam3Model.from_pretrained(model_name).to(device)
+    processor = Sam3Processor.from_pretrained(model_name)
     return torch, model, processor, device
 
 

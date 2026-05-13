@@ -1,12 +1,12 @@
 # Model names can be Hugging Face ids or local model directories.
-sam2_model_name: facebook/sam2.1-hiera-large
-sam3_model_name: facebook/sam3
+sam2_model_name: /root/autodl-tmp/sam2.1-hiera-large
+sam3_model_name: /root/autodl-tmp/sam3
 
 # Device: cuda or cpu. Leave empty to let scripts auto-detect.
 device: cuda
 
 # Input image path is resolved relative to this config file.
-image_path: ../dataset/images/seg_demo.jpg
+image_path: /root/autodl-tmp/dataset/images/img-1.png
 
 # Outputs are written under this directory:
 #   outputs/sam2

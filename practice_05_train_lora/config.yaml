@@ -1,16 +1,82 @@
 vision_model_path: ../models/vision-backbone
-vlm_model_path: ../models/vlm
-vision_dataset_dir: ../data/vision_dataset
-vlm_train_jsonl: ../data/vlm_lora/train.jsonl
+vlm_model_path: /root/autodl-tmp/Qwen3-VL-8B-Instruct/
+vision_dataset_dir: /autodl-fs/data/dataset/merged_helmet_voc/
+vlm_train_jsonl: /autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_train.jsonl
+vlm_val_jsonl: /autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_val.jsonl
+vlm_test_jsonl: /autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_test.jsonl
+# 如果 JSONL 中图片是相对路径，会优先相对该目录解析；不配置时相对 JSONL 所在目录解析。
+vlm_data_root: /autodl-fs/data/dataset/merged_helmet_voc/
 output_dir: outputs
+local_files_only: true
+resume_from_checkpoint: null
+lora_adapter_path: outputs/vlm_lora/adapter
+
+model:
+  # 5090 支持 bf16，训练 Qwen3-VL 推荐优先使用 bf16。
+  dtype: bfloat16
+  # sdpa 不需要额外安装；如果环境已安装 flash-attn，可改为 flash_attention_2。
+  attn_implementation: sdpa
+  # 控制单张图片的视觉 token 数。遇到显存不足或 image token/features 不匹配时优先调低 max_pixels。
+  min_pixels: 3136
+  max_pixels: 1003520
+
+training:
+  epochs: 3
+  # 2 张 5090 启动 torchrun 后，该值表示每张卡的 batch size。
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.0001
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  lr_scheduler_type: cosine
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  max_length: 8192
+  save_steps: 100
+  logging_steps: 10
+  save_total_limit: 2
+  dataloader_num_workers: 4
+  optim: adamw_torch_fused
+  report_to: none
+
+# 保留旧字段，给 train_vision_task.py 使用。
 epochs: 3
 batch_size: 2
 learning_rate: 0.0001
+
 lora:
   r: 16
   alpha: 32
   dropout: 0.05
+  bias: none
   target_modules:
     - q_proj
+    - k_proj
     - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
 
+inference:
+  jsonl_path: /autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_val.jsonl
+  input_image: /autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_images/000000.jpg
+  prompt: 请检测图片中的安全帽和未佩戴安全帽的头部。请只输出 JSON 数组，每个元素包含 label 和 bbox，bbox 格式为 [xmin, ymin, xmax, ymax]。
+  output_path: outputs/vlm_lora/inference_result.json
+  batch_output_path: outputs/vlm_lora/val_predictions.jsonl
+  max_samples: 0
+  max_new_tokens: 512
+  do_sample: false
+  temperature: 0.0
+
+evaluation:
+  split: val
+  output_path: outputs/vlm_lora/eval_predictions.jsonl
+  metrics_path: outputs/vlm_lora/eval_metrics.json
+  max_samples: 0
+  iou_threshold: 0.5
+  max_new_tokens: 512
+  do_sample: false
+  temperature: 0.0

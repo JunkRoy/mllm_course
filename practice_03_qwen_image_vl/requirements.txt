@@ -3,3 +3,5 @@ transformers
 diffusers
 Pillow
 PyYAML
+dashscope
+requests

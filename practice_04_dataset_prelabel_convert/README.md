@@ -1,393 +1,218 @@
-# 实操 4：检测数据集整理、可视化检查与 Qwen-VL 训练数据转换
+# 实操 4：检测数据集整理、可视化与 Qwen-VL JSONL 转换
 
-本章节面向刚接触多模态训练数据处理的同学。你会把传统目标检测数据集整理成统一格式，再转换为 Qwen-VL 指令微调常用的 JSONL 数据。
+本节把传统 VOC 检测数据集整理成 Qwen-VL 可以训练的 `messages` JSONL。
 
-本节默认约定：
-
-- `dataset` 目录与 `practice_04_dataset_prelabel_convert` 目录位于同一级。
-- 所有命令在 Ubuntu 环境中执行。
-- 所有路径都使用相对路径，方便未来迁移到服务器。
-
-推荐项目结构：
+最终目标：
 
 ```text
-mllm_course
-├─ dataset
-│  ├─ Safety Helmet Detection_datasets_
-│  ├─ VOC2028
-│  └─ merged_helmet_voc
-└─ practice_04_dataset_prelabel_convert
-   ├─ merge_helmet_datasets.py
-   ├─ visualize_voc_boxes.py
-   └─ voc_to_qwen_vl_jsonl.py
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_train.jsonl
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_val.jsonl
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_images/
 ```
 
-## 1. 本节目标
-
-完成本节后，你应该能做到：
-
-- 理解图片和 Pascal VOC XML 标注文件的一一对应关系。
-- 将 `head`、`helmet`、`hat` 等类别名统一成训练需要的类别。
-- 合并两个数据集并去除近似重复图片。
-- 把 XML 中的类别和 bbox 画到图片上，人工检查标注质量。
-- 把训练集转换成 Qwen-VL 微调常见的 messages JSONL 格式。
-
-## 2. 当前目录文件
-
-从项目根目录执行：
-
-```bash
-ls practice_04_dataset_prelabel_convert
-```
-
-主要文件：
+## 1. 本节文件
 
 | 文件 | 作用 |
 | --- | --- |
-| `merge_helmet_datasets.py` | 合并两个 VOC 数据集，统一类别，去除近似重复图片 |
-| `visualize_voc_boxes.py` | 把 XML 标签和检测框画到图片上 |
-| `voc_to_qwen_vl_jsonl.py` | 把 VOC 训练集转换为 Qwen-VL JSONL |
-| `requirements.txt` | 本节依赖 |
-| `build_and_convert_dataset.py` | 课程通用格式转换示例脚本 |
+| `merge_helmet_datasets.py` | 合并安全帽 VOC 数据集，统一类别，划分 train/val/test |
+| `visualize_voc_boxes.py` | 把 XML bbox 画到图片上，人工检查标注质量 |
+| `voc_to_qwen_vl_jsonl.py` | 把 VOC XML 转成 Qwen-VL `messages` JSONL |
+| `build_and_convert_dataset.py` | 通用格式转换示例 |
 | `config.yaml` | 通用格式转换示例配置 |
+| `requirements.txt` | 本节依赖 |
 
-## 3. 原始数据目录要求
-
-请确认项目根目录下存在 `dataset`：
-
-```bash
-ls dataset
-```
-
-其中应包含：
-
-```text
-dataset
-├─ Safety Helmet Detection_datasets_
-│  ├─ images
-│  └─ annotations
-└─ VOC2028
-   ├─ JPEGImages
-   ├─ Annotations
-   └─ ImageSets
-```
-
-两个数据集的类别命名不同：
-
-- `Safety Helmet Detection_datasets_` 中常见类别：`head`、`helmet`。
-- `VOC2028` 中常见类别：`hat`。
-- 本节会把 `hat` 统一映射为 `helmet`。
-
-最终只保留：
-
-```text
-head
-helmet
-```
-
-## 4. 安装依赖
+## 2. 安装依赖
 
 ```bash
 pip install -r practice_04_dataset_prelabel_convert/requirements.txt
 ```
 
-检查依赖：
+检查：
 
 ```bash
-python -c "import PIL; import tqdm; print('依赖检查通过')"
+python -c "from PIL import Image; import tqdm; print('ok')"
 ```
 
-## 5. 第一步：合并数据集
+## 3. 数据目录约定
 
-执行：
-
-```bash
-python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py --overwrite
-```
-
-脚本默认读取：
+服务器数据盘路径建议使用：
 
 ```text
-dataset/Safety Helmet Detection_datasets_
-dataset/VOC2028
+/autodl-fs/data/dataset/
 ```
 
-默认输出：
+合并后数据集目录：
 
 ```text
-dataset/merged_helmet_voc
+/autodl-fs/data/dataset/merged_helmet_voc/
 ```
 
-输出结构：
+里面应该有：
 
 ```text
-dataset/merged_helmet_voc
-├─ Annotations
-├─ JPEGImages
-├─ ImageSets
-│  └─ Main
-│     ├─ train.txt
-│     ├─ val.txt
-│     ├─ test.txt
-│     └─ trainval.txt
-├─ classes.txt
-└─ summary.json
+Annotations/
+JPEGImages/
+ImageSets/Main/train.txt
+ImageSets/Main/val.txt
+ImageSets/Main/test.txt
+classes.txt
+summary.json
 ```
 
-## 6. 合并脚本参数
+## 4. 合并数据集
 
-指定数据根目录：
+如果还没有 `merged_helmet_voc`，先运行合并：
 
 ```bash
 python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py \
-  --dataset-root dataset \
+  --dataset-root /autodl-fs/data/dataset \
   --overwrite
 ```
 
-指定输出目录：
-
-```bash
-python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py \
-  --output-dir dataset/merged_helmet_voc_v2 \
-  --overwrite
-```
-
-关闭近似重复图片去重：
-
-```bash
-python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py \
-  --dedupe-threshold -1 \
-  --overwrite
-```
-
-调整去重阈值：
-
-```bash
-python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py \
-  --dedupe-threshold 6 \
-  --overwrite
-```
-
-说明：
-
-- `--dedupe-threshold` 越大，去重越激进。
-- 默认值是 `4`，适合先做温和去重。
-- 如果担心误删，可以先用 `-1` 关闭去重。
-
-## 7. 检查合并结果
-
-查看输出目录：
-
-```bash
-ls dataset/merged_helmet_voc
-```
-
-查看类别：
-
-```bash
-cat dataset/merged_helmet_voc/classes.txt
-```
-
-正常输出：
+输出默认写到：
 
 ```text
-head
-helmet
+/autodl-fs/data/dataset/merged_helmet_voc/
 ```
 
-查看处理摘要：
+常用参数：
+
+| 参数 | 含义 |
+| --- | --- |
+| `--dataset-root` | 原始数据和输出数据所在根目录 |
+| `--output-dir` | 自定义合并输出目录 |
+| `--dedupe-threshold` | 图片去重阈值，`-1` 表示关闭去重 |
+| `--overwrite` | 覆盖已有输出 |
+
+## 5. 可视化检查
+
+先看 100 张：
 
 ```bash
-cat dataset/merged_helmet_voc/summary.json
+python practice_04_dataset_prelabel_convert/visualize_voc_boxes.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --max-images 100
 ```
 
-重点关注：
-
-- `input_records`：合并前读到的有效样本数。
-- `output_records`：合并和去重后保留的样本数。
-- `duplicates_removed`：去掉的近似重复图片数。
-- `output_stats`：每个类别的目标框数量。
-
-## 8. 第二步：可视化检查检测框
-
-先可视化 100 张图片：
-
-```bash
-python practice_04_dataset_prelabel_convert/visualize_voc_boxes.py --max-images 100
-```
-
-默认输出：
+输出：
 
 ```text
-dataset/merged_helmet_voc/visualizations
+/autodl-fs/data/dataset/merged_helmet_voc/visualization/
 ```
 
-查看输出文件：
+如果想可视化全部：
 
 ```bash
-ls dataset/merged_helmet_voc/visualizations | head
+python practice_04_dataset_prelabel_convert/visualize_voc_boxes.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --max-images 0
 ```
 
-如果前 100 张看起来正常，再可视化全部：
-
-```bash
-python practice_04_dataset_prelabel_convert/visualize_voc_boxes.py
-```
-
-人工检查时重点看：
+人工检查重点：
 
 - `helmet` 是否框住安全帽。
-- `head` 是否框住未戴安全帽的头部。
-- bbox 是否明显偏移。
-- 是否有类别明显标错。
+- `head` 是否框住未戴安全帽的头。
+- bbox 是否偏移。
+- 类别是否反了。
 
-## 9. 第三步：转换为 Qwen-VL JSONL
+## 6. 转换为 Qwen-VL JSONL
 
-生成训练集：
+生成训练集，并把图片统一转成 RGB JPEG：
 
 ```bash
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py --split train
+python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --split train \
+  --normalize-images
 ```
 
 生成验证集：
 
 ```bash
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py --split val
+python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --split val \
+  --normalize-images
 ```
 
-默认输出：
+生成测试集：
+
+```bash
+python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --split test \
+  --normalize-images
+```
+
+输出文件：
 
 ```text
-dataset/merged_helmet_voc/qwen_vl_train.jsonl
-dataset/merged_helmet_voc/qwen_vl_val.jsonl
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_train.jsonl
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_val.jsonl
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_test.jsonl
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_images/
+/autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_train_summary.json
 ```
 
-查看前两行：
+`--normalize-images` 很重要：它会把 BMP 等图片转成 RGB JPEG，避免 Qwen3-VL 训练时遇到不支持的图片格式。
+
+## 7. 查看 JSONL
 
 ```bash
-head -n 2 dataset/merged_helmet_voc/qwen_vl_train.jsonl
+head -n 1 /autodl-fs/data/dataset/merged_helmet_voc/qwen_vl_train.jsonl
 ```
 
-## 10. Qwen-VL JSONL 格式说明
-
-每一行是一条训练样本，结构类似：
+每行结构类似：
 
 ```json
-{
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        {"type": "image", "image": "JPEGImages/000001.jpg"},
-        {"type": "text", "text": "请检测图片中的安全帽和未佩戴安全帽的头部。请只输出 JSON 数组，每个元素包含 label 和 bbox，bbox 格式为 [xmin, ymin, xmax, ymax]。"}
-      ]
-    },
-    {
-      "role": "assistant",
-      "content": [
-        {"type": "text", "text": "[{\"label\": \"helmet\", \"bbox\": [10, 20, 80, 100]}]"}
-      ]
-    }
-  ]
-}
+{"messages":[{"role":"user","content":[{"type":"image","image":"qwen_vl_images/xxx.jpg"},{"type":"text","text":"请检测图片中的安全帽和未佩戴安全帽的头部。请只输出 JSON 数组，每个元素包含 label 和 bbox，bbox 格式为 [xmin, ymin, xmax, ymax]。"}]},{"role":"assistant","content":[{"type":"text","text":"[{\"label\":\"helmet\",\"bbox\":[10,20,80,100]}]"}]}]}
 ```
 
-字段含义：
+含义：
 
-- `user`：输入图片和任务指令。
-- `assistant`：期望模型学习输出的答案。
-- `label`：目标类别。
-- `bbox`：像素坐标 `[xmin, ymin, xmax, ymax]`。
+| 字段 | 含义 |
+| --- | --- |
+| `user.content.image` | 输入图片，相对 `merged_helmet_voc` |
+| `user.content.text` | 给模型的检测指令 |
+| `assistant.content.text` | 标准答案，JSON 数组 |
+| `bbox` | `[xmin, ymin, xmax, ymax]` 像素坐标 |
 
-## 11. 自定义输出路径和提示词
-
-指定 JSONL 输出位置：
-
-```bash
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
-  --split train \
-  --jsonl-path dataset/merged_helmet_voc/qwen_train.jsonl
-```
-
-自定义 prompt：
-
-```bash
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
-  --split train \
-  --prompt "请找出图片中的 helmet 和 head，输出 JSON 数组，字段包括 label 和 bbox。"
-```
-
-如果训练框架要求绝对图片路径，可以加：
-
-```bash
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
-  --split train \
-  --absolute-image-path
-```
-
-一般建议优先使用相对路径，方便数据迁移。
-
-## 12. 推荐完整流程
-
-第一次操作建议按下面顺序执行：
-
-```bash
-python -c "import PIL; import tqdm; print('依赖检查通过')"
-python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py --overwrite
-python practice_04_dataset_prelabel_convert/visualize_voc_boxes.py --max-images 100
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py --split train
-python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py --split val
-```
-
-## 13. 常见问题
-
-问题：找不到 `dataset`。
-
-解决：确认 `dataset` 与 `practice_04_dataset_prelabel_convert` 在同一级目录。
-
-问题：找不到 `train.txt`。
-
-解决：先运行合并脚本，生成 `ImageSets/Main/train.txt`。
-
-问题：可视化图片没有框。
-
-解决：检查对应 XML 是否有有效 `object` 和 `bndbox`：
-
-```bash
-sed -n '1,120p' dataset/merged_helmet_voc/Annotations/000000.xml
-```
-
-问题：去重后图片少了很多。
-
-解决：降低阈值或关闭去重：
+## 8. 完整推荐流程
 
 ```bash
 python practice_04_dataset_prelabel_convert/merge_helmet_datasets.py \
-  --dedupe-threshold 2 \
+  --dataset-root /autodl-fs/data/dataset \
   --overwrite
+
+python practice_04_dataset_prelabel_convert/visualize_voc_boxes.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --max-images 100
+
+python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --split train \
+  --normalize-images
+
+python practice_04_dataset_prelabel_convert/voc_to_qwen_vl_jsonl.py \
+  --dataset-root /autodl-fs/data/dataset \
+  --split val \
+  --normalize-images
 ```
 
-## 14. 学习任务
+## 9. 常见问题
 
-请完成下面练习：
+问题：找不到 `train.txt`。
 
-1. 解释为什么要把 `hat` 映射为 `helmet`。
-2. 查看 `summary.json`，记录最终保留了多少张图片。
-3. 打开 10 张可视化图片，判断 bbox 是否合理。
-4. 查看 `qwen_vl_train.jsonl` 的前两行，说明 `user` 和 `assistant` 的作用。
+解决：先运行 `merge_helmet_datasets.py`，生成 `ImageSets/Main/train.txt`。
 
-## 15. 最终产物检查清单
+问题：可视化没有框。
 
-完成本节后，请确认这些文件或目录存在：
+解决：检查 XML 中是否有 `object/bndbox`。
 
-```text
-dataset/merged_helmet_voc/Annotations
-dataset/merged_helmet_voc/JPEGImages
-dataset/merged_helmet_voc/ImageSets/Main/train.txt
-dataset/merged_helmet_voc/classes.txt
-dataset/merged_helmet_voc/summary.json
-dataset/merged_helmet_voc/visualizations
-dataset/merged_helmet_voc/qwen_vl_train.jsonl
-```
+问题：转换时跳过很多样本。
 
-看到这些产物，说明你已经完成了从传统检测数据集到多模态大模型训练数据的完整转换流程。
+解决：查看 `qwen_vl_train_summary.json`，里面有跳过原因，比如坏图、无有效框、类别不合法。
+
+问题：训练时报图片格式不支持。
+
+解决：重新转换 JSONL 时加 `--normalize-images`。

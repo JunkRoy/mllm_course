@@ -2,7 +2,6 @@
 """将 VOC XML 标注框和类别名画到图片上，便于人工检查数据质量。"""
 
 from __future__ import annotations
-
 import argparse
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -92,6 +91,11 @@ def read_objects(xml_path: Path) -> tuple[str, list[dict]]:
 def draw_one(xml_path: Path, output_dir: Path, visual_dir: Path, line_width: int) -> bool:
     """绘制单张图片的所有标注框。"""
 
+    # main 中会传入 Path；这里再包一层，兼容外部调用时误传字符串。
+    xml_path = Path(xml_path)
+    output_dir = Path(output_dir)
+    visual_dir = Path(visual_dir)
+
     Image, ImageDraw, ImageFont = import_pillow()
     filename, objects = read_objects(xml_path)
     image_path = find_image(output_dir, filename, xml_path.stem)
@@ -122,6 +126,7 @@ def draw_one(xml_path: Path, output_dir: Path, visual_dir: Path, line_width: int
         draw.text((xmin + 3, text_y + 2), text, fill=(0, 0, 0), font=font)
 
     visual_dir.mkdir(parents=True, exist_ok=True)
+
     save_path = visual_dir / f"{xml_path.stem}.jpg"
     canvas.save(save_path, quality=95)
     return True
@@ -129,18 +134,21 @@ def draw_one(xml_path: Path, output_dir: Path, visual_dir: Path, line_width: int
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Draw VOC boxes and labels on merged dataset images.")
-    default_output = DEFAULT_DATASET_ROOT / "merged_helmet_voc"
-    parser.add_argument("--output-dir", type=Path, default=default_output, help="Merged VOC dataset directory.")
+    # default_output = DEFAULT_DATASET_ROOT / "merged_helmet_voc"
+    parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
+    parser.add_argument("--output-dir", type=Path, default=None, help="Merged VOC dataset directory.")
     parser.add_argument("--visual-dir", type=Path, default=None, help="Directory for rendered images.")
-    parser.add_argument("--max-images", type=int, default=0, help="0 means visualize all images.")
+    parser.add_argument("--max-images", type=int, default=20, help="0 means visualize all images.")
     parser.add_argument("--line-width", type=int, default=3)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    output_dir = args.output_dir.resolve()
-    visual_dir = (args.visual_dir or (output_dir / "visualizations")).resolve()
+    default_output = args.dataset_root / "merged_helmet_voc"
+    output_dir = args.output_dir.resolve() if args.output_dir else default_output
+
+    visual_dir = args.visual_dir.resolve() if args.visual_dir else output_dir / "visualization"
     annotation_dir = output_dir / "Annotations"
 
     xml_files = sorted(annotation_dir.glob("*.xml"))

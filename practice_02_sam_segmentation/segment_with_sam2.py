@@ -114,10 +114,11 @@ def flatten_masks_and_scores(masks: Any, scores: Any | None) -> tuple[np.ndarray
 def postprocess_sam2(processor, outputs, inputs) -> tuple[np.ndarray, np.ndarray]:
     """Restore SAM2 masks to original image size."""
 
-    masks = processor.image_processor.post_process_masks(
+    # SAM2 post_process_masks only needs original_sizes. The older SAM
+    # processor also required reshaped_input_sizes, but SAM2 does not return it.
+    masks = processor.post_process_masks(
         outputs.pred_masks.cpu(),
         original_sizes=inputs["original_sizes"].cpu(),
-        reshaped_input_sizes=inputs["reshaped_input_sizes"].cpu(),
     )[0]
     scores = getattr(outputs, "iou_scores", None)
     if scores is not None:
@@ -129,7 +130,9 @@ def run_box_prompt(image: Image.Image, box: list[float], model, processor, torch
     """Run one SAM2 box prompt."""
 
     box_xyxy = [float(v) for v in box]
-    inputs = processor(image, input_boxes=[[[box_xyxy]]], return_tensors="pt").to(device)
+    # Sam2Processor expects box nesting as:
+    # [image level, box level, box coordinates].
+    inputs = processor(images=image, input_boxes=[[box_xyxy]], return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
     return postprocess_sam2(processor, outputs, inputs)
@@ -139,8 +142,10 @@ def run_point_prompt(image: Image.Image, point: list[float], model, processor, t
     """Run one SAM2 point prompt."""
 
     label = int(point[2]) if len(point) > 2 else 1
+    # Sam2Processor expects point nesting as:
+    # [image level, object level, point level, xy coordinate].
     inputs = processor(
-        image,
+        images=image,
         input_points=[[[[float(point[0]), float(point[1])]]]],
         input_labels=[[[label]]],
         return_tensors="pt",

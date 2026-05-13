@@ -1,172 +1,176 @@
-# 实操 3：Qwen-Image 图像生成与 Qwen-VL 图片问答
+# 实操 3：Qwen 图像生成、图像编辑与图片问答
 
-本章节把多模态模型调用拆成两个任务：
+本节包含三类任务：
 
-1. 使用 Qwen-Image 根据文字生成图片，或对已有图片进行编辑。
-2. 使用 Qwen-VL / InternVL 对图片进行问答、描述和 OCR。
+1. 本地 Qwen-Image 文生图/图像编辑。
+2. 通过阿里云百炼 DashScope API 调用图像编辑模型。
+3. 使用 VLM 做图片问答。
 
-这两个任务分别由两个脚本完成，方便你单独学习和调试。
-
-## 1. 本节目标
-
-完成本节后，你应该能做到：
-
-- 理解图像生成模型和视觉语言模型的区别。
-- 使用配置文件管理模型路径、输入图片、输出目录和提示词。
-- 运行文生图脚本并查看生成图片。
-- 运行 VQA 脚本并查看 JSON 问答结果。
-
-## 2. 目录结构
-
-从项目根目录查看：
-
-```bash
-ls practice_03_qwen_image_vl
-```
-
-主要文件：
+## 1. 本节文件
 
 | 文件 | 作用 |
 | --- | --- |
-| `config.yaml` | 统一配置文件，包含 `qwen_image` 和 `vlm` 两个配置块 |
-| `qwen_image_generate.py` | 图像生成和可选图片编辑脚本 |
-| `vl_vqa.py` | 图片问答脚本 |
+| `config.yaml` | 本地生成、API 编辑、VLM 问答的统一配置 |
+| `qwen_image_generate.py` | 本地 Qwen-Image / Qwen-Image-Edit 推理 |
+| `qwen_image_edit_api.py` | 调用 DashScope API 做图像编辑 |
+| `vl_vqa.py` | 使用视觉语言模型做图片问答 |
 | `requirements.txt` | 本节依赖 |
-| `outputs/generated_*.png` | 文生图结果 |
-| `outputs/edited_image.png` | 图片编辑结果 |
-| `outputs/vqa_results.json` | 图片问答结果 |
 
-## 3. 安装依赖
+## 2. 安装依赖
 
 ```bash
 pip install -r practice_03_qwen_image_vl/requirements.txt
 ```
 
-检查 GPU：
+如果要调用阿里云 API，还需要设置 API Key：
 
 ```bash
-nvidia-smi
-python -c "import torch; print(torch.cuda.is_available())"
+export DASHSCOPE_API_KEY="你的 API Key"
 ```
 
-## 4. 查看配置文件
+不要把真实 API Key 写进代码或提交到仓库。
+
+## 3. 配置说明
+
+当前 `config.yaml` 分三块：
+
+| 配置块 | 作用 |
+| --- | --- |
+| `qwen_image.local` | 本地 Qwen-Image 生成/编辑 |
+| `qwen_image.api` | DashScope API 图像编辑 |
+| `vlm` | 图片问答 |
+
+API 编辑当前输入图片路径是：
+
+```yaml
+qwen_image:
+  api:
+    input_images:
+      - /root/autodl-tmp/dataset/images/img-1.png
+```
+
+运行前确认：
 
 ```bash
-sed -n '1,240p' practice_03_qwen_image_vl/config.yaml
+ls /root/autodl-tmp/dataset/images/img-1.png
 ```
 
-配置文件分成两个部分。
+## 4. 本地 Qwen-Image 推理
 
-### 4.1 Qwen-Image 配置
+如果你已经准备好了本地 Qwen-Image 模型，并正确设置了：
 
-| 字段 | 含义 |
-| --- | --- |
-| `model_path` | Qwen-Image 本地模型目录 |
-| `output_dir` | 生成图片保存目录 |
-| `generation_prompts` | 文生图提示词列表 |
-| `edit_image_path` | 可选的待编辑图片路径，设为 `null` 可跳过编辑 |
-| `edit_prompt` | 图片编辑提示词 |
+```yaml
+qwen_image:
+  local:
+    model_path: ../models/qwen-image
+```
 
-### 4.2 VLM 配置
-
-| 字段 | 含义 |
-| --- | --- |
-| `model_path` | Qwen-VL / InternVL 本地模型目录 |
-| `image_path` | 图片问答输入图片 |
-| `output_dir` | 问答结果输出目录 |
-| `max_new_tokens` | 最大生成长度 |
-| `questions` | 要问模型的问题列表 |
-
-## 5. 运行 Qwen-Image 图像生成
-
-从项目根目录执行：
+运行：
 
 ```bash
 python practice_03_qwen_image_vl/qwen_image_generate.py \
   --config practice_03_qwen_image_vl/config.yaml
 ```
 
-运行完成后查看：
+只运行文生图：
 
 ```bash
-ls practice_03_qwen_image_vl/outputs
+python practice_03_qwen_image_vl/qwen_image_generate.py \
+  --config practice_03_qwen_image_vl/config.yaml \
+  --task generate
 ```
 
-如果配置了多条 `generation_prompts`，会得到多张：
+只运行图像编辑：
+
+```bash
+python practice_03_qwen_image_vl/qwen_image_generate.py \
+  --config practice_03_qwen_image_vl/config.yaml \
+  --task edit
+```
+
+输出目录由 `qwen_image.local.output_dir` 控制，当前是：
 
 ```text
-generated_000.png
-generated_001.png
-...
+outputs/
 ```
 
-如果 `edit_image_path` 不为空，并且当前模型管线支持图片编辑，还会生成：
+## 5. DashScope API 图像编辑
 
-```text
-edited_image.png
+确认配置：
+
+```yaml
+qwen_image:
+  api:
+    model: qwen-image-2.0-pro
+    input_images:
+      - /root/autodl-tmp/dataset/images/img-1.png
+    prompt: 将图片编辑成更清晰的工业检测场景，保留原始主体，补充柔和灯光。
 ```
 
-## 6. 运行 Qwen-VL / InternVL 图片问答
+运行：
+
+```bash
+python practice_03_qwen_image_vl/qwen_image_edit_api.py \
+  --config practice_03_qwen_image_vl/config.yaml \
+  --save-response
+```
+
+脚本会：
+
+1. 读取本地图片。
+2. 转成 API 可接收的 data URL。
+3. 调用 DashScope。
+4. 下载返回图片到 `outputs/api_edited_*.png`。
+5. 保存完整响应到 `outputs/api_response.json`。
+
+## 6. 图片问答
+
+`vl_vqa.py` 使用 `vlm` 配置块：
+
+```yaml
+vlm:
+  model_path: ../models/vlm
+  image_path: ../dataset/images/vqa_demo.jpg
+  questions:
+    - 请描述图片内容。
+    - 请识别图片中的文字，并按 JSON 返回。
+```
+
+如果你要使用服务器上的 Qwen3-VL，请把 `model_path` 和 `image_path` 改成真实路径。
+
+运行：
 
 ```bash
 python practice_03_qwen_image_vl/vl_vqa.py \
   --config practice_03_qwen_image_vl/config.yaml
 ```
 
-查看问答结果：
+输出：
 
-```bash
-cat practice_03_qwen_image_vl/outputs/vqa_results.json
+```text
+outputs/vqa_results.json
 ```
 
-结果中每条记录包含：
+## 7. 常见问题
 
-- `question`：你问模型的问题。
-- `answer`：模型生成的回答。
+问题：API 报没有 Key。
 
-## 7. 修改提示词做实验
+解决：确认当前终端执行过 `export DASHSCOPE_API_KEY="..."`。
 
-你可以修改 `config.yaml` 中的 `generation_prompts`，例如：
+问题：API 没有返回图片。
 
-```yaml
-generation_prompts:
-  - 一张工业巡检场景图片，包含安全帽、管道和仪表盘，写实风格。
-```
+解决：加 `--save-response`，查看 `outputs/api_response.json` 中的错误信息。
 
-也可以修改 `questions`，例如：
+问题：本地模型路径不存在。
 
-```yaml
-questions:
-  - 请描述图片中的主要对象。
-  - 请识别图片中的文字，并以 JSON 返回。
-  - 图片中是否存在安全风险？请说明理由。
-```
+解决：检查 `qwen_image.local.model_path` 或 `vlm.model_path` 是否是服务器上的真实模型目录。
 
-修改后重新运行对应脚本即可。
+问题：图片路径不存在。
 
-## 8. 常见问题
+解决：检查 `input_images`、`edit_image_path` 或 `vlm.image_path`。
 
-问题：模型路径不存在。
+## 8. 建议练习
 
-解决：检查 `model_path`，确保模型权重已经放到服务器上。
-
-问题：显存不足。
-
-解决：尝试使用更小模型、减少生成分辨率，或换显存更大的 GPU。
-
-问题：图片编辑没有效果。
-
-说明：不是所有 diffusion pipeline 都支持 `image` 输入。脚本会尽量兼容，但最终取决于模型本身能力。
-
-问题：VQA 输出不符合 JSON。
-
-解决：把问题写得更明确，例如“只输出 JSON，不要输出解释文字”。
-
-## 9. 学习任务
-
-请完成下面练习：
-
-1. 写两条不同风格的文生图 prompt，并比较生成结果。
-2. 把 `edit_image_path` 设为 `null`，确认图片编辑步骤被跳过。
-3. 给同一张图片提出三个问题：描述、OCR、风险分析。
-4. 修改 `max_new_tokens`，观察回答是否更完整。
+1. 改 API 的 `prompt`，观察编辑效果。
+2. 改 `qwen_image.local.generation_prompts`，尝试不同文生图描述。
+3. 改 `vlm.questions`，让模型只输出 JSON。

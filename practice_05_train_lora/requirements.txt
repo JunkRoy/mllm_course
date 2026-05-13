@@ -3,4 +3,6 @@ torchvision
 transformers
 datasets
 peft
+accelerate
+Pillow
 PyYAML

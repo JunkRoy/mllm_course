@@ -1,12 +1,40 @@
 qwen_image:
-  model_path: ../models/qwen-image
-  output_dir: outputs
-  generation_prompts:
-    - 一张工业质检场景图片，包含传送带、金属零件和清晰的中文标题。
-    - 科技展厅中的服务机器人，写实风格，冷暖光对比。
-  # 如果不需要图片编辑，可以设置为 null。
-  edit_image_path: ../dataset/images/edit_input.jpg
-  edit_prompt: 将图片编辑成更清晰的工业检测场景，保留原始主体，补充柔和灯光。
+  local:
+    # 本地 Qwen-Image 或 Qwen-Image-Edit 模型目录。
+    model_path: ../models/qwen-image
+    output_dir: outputs
+    torch_dtype: auto
+    seed: 42
+    inference:
+      width: 1024
+      height: 1024
+      num_inference_steps: 50
+      true_cfg_scale: 4.0
+      guidance_scale: null
+      negative_prompt: null
+      max_sequence_length: 512
+    generation_prompts:
+      - 一张工业质检场景图片，包含传送带、金属零件和清晰的中文标题。
+      - 科技展厅中的服务机器人，写实风格，冷暖光对比。
+    # 如果只做文生图，可以设置为 null。
+    edit_image_path: ../dataset/images/edit_input.jpg
+    edit_prompt: 将图片编辑成更清晰的工业检测场景，保留原始主体，补充柔和灯光。
+
+  api:
+    # 运行前设置环境变量 DASHSCOPE_API_KEY。
+    api_key_env: DASHSCOPE_API_KEY
+    base_http_api_url: null
+    model: qwen-image-2.0-pro
+    output_dir: outputs
+    input_images:
+      - /root/autodl-tmp/dataset/images/img-1.png
+    prompt: 将图片编辑成更清晰的工业检测场景，保留原始主体，补充柔和灯光。
+    parameters:
+      n: 1
+      watermark: false
+      negative_prompt: null
+      prompt_extend: true
+      size: 1024*1024
 
 vlm:
   # 支持 Qwen-VL / InternVL 等视觉语言模型。
