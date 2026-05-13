@@ -1,6 +1,8 @@
 # 实操 2：SAM2 / SAM3 图像分割
 
-本节用同一张图片和同一组提示点/框，分别运行 SAM2 和 SAM3，观察分割 mask 的效果。
+本节用同一张图片和同一组提示（点/框），分别运行 SAM2 和 SAM3，观察分割 mask 的效果。
+
+> 说明：SAM 原生是「输入图像 + prompt（点/框等）-> 输出目标区域」。本实践现在支持**按目标组合 prompt**，而不是只把点和框拆开独立跑。
 
 ## 1. 本节文件
 
@@ -12,6 +14,23 @@
 | `segment_with_prompts.py` | 通用提示分割示例 |
 | `requirements.txt` | 本节依赖 |
 
+## 目标级 Prompt（推荐）
+
+你可以在 `config.yaml` 里配置 `targets`，每个目标可同时包含 box / 前景点 / 背景点（以下用安全帽检测示例）：
+
+```yaml
+targets:
+  - name: "safety_helmet"
+    box: [180, 60, 340, 220]
+    points:
+      - [250, 130, 1]   # 安全帽前景点
+      - [180, 250, 0]   # 人体背景点
+```
+
+脚本会把同一目标的提示联合送入模型（SAM2 原生支持点+框联合；SAM3 保持 box 主导，并将 point 作为 point_as_box 兼容路径保留）。
+
+如果 `targets` 为空，才会回退到旧的 `point_prompts` / `box_prompts`。
+
 ## 2. 当前配置
 
 当前 `config.yaml` 使用服务器真实路径：
@@ -20,13 +39,13 @@
 sam2_model_name: /root/autodl-tmp/sam2.1-hiera-large
 sam3_model_name: /root/autodl-tmp/sam3
 device: cuda
-image_path: /root/autodl-tmp/dataset/images/img-1.png
+image_path: /root/autodl-tmp/dataset/helmet/images/helmet_demo_01.jpg
 output_dir: outputs
 confidence_threshold: 0.5
 point_prompts:
-  - [320, 240, 1]
+  - [250, 130, 1]
 box_prompts:
-  - [100, 80, 520, 420]
+  - [180, 60, 340, 220]
 ```
 
 运行前确认模型和图片存在：
@@ -34,7 +53,7 @@ box_prompts:
 ```bash
 ls /root/autodl-tmp/sam2.1-hiera-large
 ls /root/autodl-tmp/sam3
-ls /root/autodl-tmp/dataset/images/img-1.png
+ls /root/autodl-tmp/dataset/helmet/images/helmet_demo_01.jpg
 ```
 
 ## 3. 安装依赖

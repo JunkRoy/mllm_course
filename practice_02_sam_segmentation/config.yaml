@@ -6,7 +6,7 @@ sam3_model_name: /root/autodl-tmp/sam3
 device: cuda
 
 # Input image path is resolved relative to this config file.
-image_path: /root/autodl-tmp/dataset/images/img-1.png
+image_path: /root/autodl-tmp/dataset/helmet/images/helmet_demo_01.jpg
 
 # Outputs are written under this directory:
 #   outputs/sam2
@@ -16,17 +16,25 @@ output_dir: outputs
 # Mask threshold for converting probability masks to binary masks.
 confidence_threshold: 0.5
 
+# Recommended: define target-level prompts so one object can use box + points together.
+targets:
+  - name: safety_helmet
+    box: [180, 60, 340, 220]
+    points:
+      - [250, 130, 1]   # helmet foreground
+      - [180, 250, 0]   # person body/background
+
 # SAM2 supports point prompts directly.
 # Format: [x, y, label], where label=1 means foreground and label=0 means background.
 point_prompts:
-  - [320, 240, 1]
+  - [250, 130, 1]
 
 # SAM2 and SAM3 both support box prompts.
 # Format: [x1, y1, x2, y2]
 box_prompts:
-  - [100, 80, 520, 420]
+  - [180, 60, 340, 220]
 
 # SAM3 script keeps this field for teaching logs.
 # This classroom script still uses box prompts for deterministic visualization.
 text_prompts:
-  - target object
+  - safety helmet
