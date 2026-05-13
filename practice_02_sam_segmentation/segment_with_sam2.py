@@ -138,6 +138,32 @@ def run_box_prompt(image: Image.Image, box: list[float], model, processor, torch
     return postprocess_sam2(processor, outputs, inputs)
 
 
+def run_target_prompt(image: Image.Image, target: dict[str, Any], model, processor, torch, device: str):
+    """Run a combined SAM2 prompt for one target (box + points)."""
+
+    box = target.get("box")
+    points = target.get("points") or []
+
+    kwargs: dict[str, Any] = {"images": image, "return_tensors": "pt"}
+    if box is not None:
+        box_xyxy = [float(v) for v in box]
+        kwargs["input_boxes"] = [[box_xyxy]]
+
+    if points:
+        point_coords = [[float(pt[0]), float(pt[1])] for pt in points]
+        point_labels = [int(pt[2]) if len(pt) > 2 else 1 for pt in points]
+        kwargs["input_points"] = [[[point_coords]]]
+        kwargs["input_labels"] = [[[point_labels]]]
+
+    if "input_boxes" not in kwargs and "input_points" not in kwargs:
+        raise ValueError("Each target needs at least one prompt: box or points.")
+
+    inputs = processor(**kwargs).to(device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return postprocess_sam2(processor, outputs, inputs)
+
+
 def run_point_prompt(image: Image.Image, point: list[float], model, processor, torch, device: str):
     """Run one SAM2 point prompt."""
 
@@ -220,17 +246,25 @@ def collect_predictions(image: Image.Image, cfg: dict[str, Any]) -> list[dict[st
     threshold = float(cfg.get("confidence_threshold", 0.5))
     items: list[dict[str, Any]] = []
 
-    for box in cfg.get("box_prompts", []):
-        masks, scores = run_box_prompt(image, box, model, processor, torch, device)
-        for idx, mask in enumerate(masks):
-            binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
-            items.append({"source": "box", "prompt": box, "mask": binary_mask, "score": float(scores[idx])})
+    targets = cfg.get("targets", [])
+    if targets:
+        for target in targets:
+            masks, scores = run_target_prompt(image, target, model, processor, torch, device)
+            for idx, mask in enumerate(masks):
+                binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+                items.append({"source": "target", "prompt": target, "mask": binary_mask, "score": float(scores[idx])})
+    else:
+        for box in cfg.get("box_prompts", []):
+            masks, scores = run_box_prompt(image, box, model, processor, torch, device)
+            for idx, mask in enumerate(masks):
+                binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+                items.append({"source": "box", "prompt": box, "mask": binary_mask, "score": float(scores[idx])})
 
-    for point in cfg.get("point_prompts", []):
-        masks, scores = run_point_prompt(image, point, model, processor, torch, device)
-        for idx, mask in enumerate(masks):
-            binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
-            items.append({"source": "point", "prompt": point, "mask": binary_mask, "score": float(scores[idx])})
+        for point in cfg.get("point_prompts", []):
+            masks, scores = run_point_prompt(image, point, model, processor, torch, device)
+            for idx, mask in enumerate(masks):
+                binary_mask = (np.squeeze(mask) > threshold).astype(np.uint8) * 255
+                items.append({"source": "point", "prompt": point, "mask": binary_mask, "score": float(scores[idx])})
 
     return items
 

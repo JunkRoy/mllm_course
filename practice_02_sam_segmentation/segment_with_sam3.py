@@ -232,18 +232,34 @@ def collect_predictions(image: Image.Image, cfg: dict[str, Any]) -> list[dict[st
     for prompt in cfg.get("text_prompts", []):
         print(f"warning: text prompt '{prompt}' is kept for teaching only; this script visualizes box prompts.")
 
-    for box in cfg.get("box_prompts", []):
-        masks, scores = run_box_prompt(image, box, model, processor, torch, device, threshold)
-        for idx, mask in enumerate(masks):
-            binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
-            items.append({"source": "box", "prompt": box, "mask": binary_mask, "score": float(scores[idx])})
+    targets = cfg.get("targets", [])
+    if targets:
+        for target in targets:
+            if target.get("box") is not None:
+                masks, scores = run_box_prompt(image, target["box"], model, processor, torch, device, threshold)
+                for idx, mask in enumerate(masks):
+                    binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
+                    items.append({"source": "target_box", "prompt": target, "mask": binary_mask, "score": float(scores[idx])})
 
-    for point in cfg.get("point_prompts", []):
-        pseudo_box = point_to_box(point, image)
-        masks, scores = run_box_prompt(image, pseudo_box, model, processor, torch, device, threshold)
-        for idx, mask in enumerate(masks):
-            binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
-            items.append({"source": "point_as_box", "prompt": point, "box": pseudo_box, "mask": binary_mask, "score": float(scores[idx])})
+            for point in target.get("points", []):
+                pseudo_box = point_to_box(point, image)
+                masks, scores = run_box_prompt(image, pseudo_box, model, processor, torch, device, threshold)
+                for idx, mask in enumerate(masks):
+                    binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
+                    items.append({"source": "target_point_as_box", "prompt": target, "point": point, "box": pseudo_box, "mask": binary_mask, "score": float(scores[idx])})
+    else:
+        for box in cfg.get("box_prompts", []):
+            masks, scores = run_box_prompt(image, box, model, processor, torch, device, threshold)
+            for idx, mask in enumerate(masks):
+                binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
+                items.append({"source": "box", "prompt": box, "mask": binary_mask, "score": float(scores[idx])})
+
+        for point in cfg.get("point_prompts", []):
+            pseudo_box = point_to_box(point, image)
+            masks, scores = run_box_prompt(image, pseudo_box, model, processor, torch, device, threshold)
+            for idx, mask in enumerate(masks):
+                binary_mask = (np.squeeze(mask) > 0).astype(np.uint8) * 255
+                items.append({"source": "point_as_box", "prompt": point, "box": pseudo_box, "mask": binary_mask, "score": float(scores[idx])})
 
     return items
 
